@@ -1,10 +1,10 @@
 #!/bin/bash
 # gRCAi Client - Docker Installation Script
-# Usage: curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-docker.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/bjgpnth/grcai-client/main/install-docker.sh | bash
 
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/bjgpnth/grcai-client"
+REPO_URL="https://github.com/bjgpnth/grcai-client"
 REPO_BRANCH="main"
 INSTALL_DIR="${PWD}/grcai-client"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
