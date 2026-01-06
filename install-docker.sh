@@ -83,10 +83,14 @@ if [ -z "$API_KEY" ]; then
 fi
 
 read -p "UI Port [8501]: " UI_PORT
-# Trim whitespace and set default
-UI_PORT=$(echo "${UI_PORT:-8501}" | tr -d '[:space:]')
+# Trim whitespace
+UI_PORT=$(echo "$UI_PORT" | tr -d '[:space:]')
+# Set default if empty
+if [ -z "$UI_PORT" ]; then
+    UI_PORT=8501
+fi
 # Validate UI_PORT is a number
-if ! [[ "$UI_PORT" =~ ^[0-9]+$ ]] || [ -z "$UI_PORT" ]; then
+if ! [[ "$UI_PORT" =~ ^[0-9]+$ ]]; then
     echo "⚠️  Invalid port number, using default 8501"
     UI_PORT=8501
 fi
@@ -142,12 +146,14 @@ mkdir -p grcai_sessions
 
 # Run container
 echo "Step 5: Starting container..."
-# Ensure UI_PORT is set and valid
-if [ -z "$UI_PORT" ] || ! [[ "$UI_PORT" =~ ^[0-9]+$ ]]; then
+# Ensure UI_PORT is set and valid (defensive check)
+if [ -z "${UI_PORT}" ] || ! [[ "${UI_PORT}" =~ ^[0-9]+$ ]]; then
     echo "⚠️  Port validation failed, using default 8501"
     UI_PORT=8501
 fi
-echo "Using port: $UI_PORT"
+# Final safety check - ensure it's definitely set
+UI_PORT=${UI_PORT:-8501}
+echo "Using port: ${UI_PORT}"
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
