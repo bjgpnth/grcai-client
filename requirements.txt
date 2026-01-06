@@ -1,0 +1,36 @@
+# === Core GRCAI Dependencies (no pyarrow) ===
+openai>=1.12.0
+tiktoken
+python-dotenv
+pyyaml
+
+# Connectors
+docker
+
+# Streamlit (installed without heavy deps)
+streamlit>=1.33,<1.38
+
+# Streamlit runtime deps (safe, no compiling)
+click
+tornado
+watchdog
+numpy
+pandas<2.2        # safer pin, avoids pyarrow dependency completely
+protobuf
+rich
+pydeck
+altair
+
+# Optional utils
+requests
+
+# SSH
+paramiko>=3.4
+
+# Pytest for testing
+pytest>=7.4
+pytest-mock
+tabulate
+
+# MSSQL support (use pyodbc or pymssql)
+pyodbc>=4.0.39

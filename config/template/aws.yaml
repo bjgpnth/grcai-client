@@ -1,0 +1,46 @@
+hosts:
+  - name: aws-web-01
+    type: vm
+    address: 10.12.3.25
+
+    access:
+      ssh:
+        user: ec2-user
+        key_path: ~/.ssh/aws-prod.pem
+      docker:
+        base_url: tcp://10.12.3.25:2376
+
+    containers:
+      - name: nginx-prod-01
+      - name: tomcat-prod-01
+
+    services:
+      os:
+        instances:
+          - name: system
+            runtime: native
+            metrics: true
+            logs:
+              - syslog
+              - messages
+
+      nginx:
+        instances:
+          - name: reverse-proxy
+            runtime: docker
+            container: nginx-prod-01
+            conf_paths:
+              - /etc/nginx/nginx.conf
+            access_log: /var/log/nginx/access.log
+            error_log: /var/log/nginx/error.log
+
+      tomcat:
+        instances:
+          - name: app-server
+            runtime: docker
+            container: tomcat-prod-01
+            catalina_home: /usr/local/tomcat
+
+metadata:
+  owner: cloud-team
+  description: AWS production EC2 + Docker environment

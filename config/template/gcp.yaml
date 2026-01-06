@@ -1,0 +1,32 @@
+hosts:
+  - name: gcp-cache-01
+    type: vm
+    address: 10.55.23.17
+
+    access:
+      ssh:
+        user: gce-admin
+      docker:
+        base_url: tcp://10.55.23.17:2376
+
+    containers:
+      - name: redis-gcp-01
+
+    services:
+      os:
+        instances:
+          - name: system
+            runtime: native
+            metrics: true
+            logs:
+              - syslog
+
+      redis:
+        instances:
+          - name: redis-main
+            runtime: docker
+            container: redis-gcp-01
+
+metadata:
+  owner: platform-team
+  description: GCP compute instance hosting Redis

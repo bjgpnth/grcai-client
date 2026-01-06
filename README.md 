@@ -1,0 +1,59 @@
+# gRCAi Client
+
+Client runtime for gRCAi Root Cause Analysis tool. This repository contains only the client-side code that can be safely deployed to customer environments.
+
+## Quick Installation
+
+### Docker Installation (Recommended)
+
+curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-docker.sh | bash### Host Installation
+
+curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-host.sh | bash## Prerequisites
+
+### Docker Installation
+- Docker installed and running
+- Network access to Central service
+
+### Host Installation
+- Python 3.12+ installed
+- Network access to Central service
+
+## Configuration
+
+After installation, you'll need to:
+
+1. Edit `config/initial/initial.yaml` with your environment details
+2. Configure hosts, services, and access methods
+3. Restart the service/container to apply changes
+
+## Usage
+
+### Docker
+
+# View logs
+docker logs -f grcai-client-runtime
+
+# Run CLI command
+docker exec -it grcai-client-runtime python main.py collect --environment initial --components os
+
+# Stop/Start
+docker stop grcai-client-runtime
+docker start grcai-client-runtime### Host
+
+cd grcai-client
+./run-ui.sh
+
+# Or manually
+source venv/bin/activate
+source .env
+streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0## Updating
+
+To update to the latest version, simply re-run the installation script:
+
+# Docker
+curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-docker.sh | bash
+
+# Host
+curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-host.sh | bash## Support
+
+For issues and questions, contact: [your-support-contact]

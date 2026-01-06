@@ -1,0 +1,37 @@
+hosts:
+  - name: azure-app-01
+    type: vm
+    address: 10.41.5.12
+
+    access:
+      ssh:
+        user: azureuser
+      docker:
+        base_url: tcp://10.41.5.12:2376
+
+    containers:
+      - name: tomcat-az-01
+
+    services:
+      os:
+        instances:
+          - name: system
+            runtime: native
+            metrics: true
+            logs:
+              - syslog
+              - auth.log
+
+      tomcat:
+        instances:
+          - name: app-service
+            runtime: docker
+            container: tomcat-az-01
+            catalina_home: /usr/local/tomcat
+
+      nginx:
+        instances: []     # No nginx on this host
+
+metadata:
+  owner: app-team
+  description: Azure VM running Tomcat inside Docker

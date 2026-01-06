@@ -1,0 +1,86 @@
+# gRCAi Client - Initial Environment Configuration Template
+# Copy this file to config/initial/initial.yaml and customize for your environment
+
+hosts:
+  # Example: Local host with Docker
+  - name: localhost
+    type: vm
+    address: localhost
+    access:
+      docker:
+        use_local_socket: true
+    services:
+      os: {}
+
+  # Example: Remote host via SSH
+  # - name: remote-server-1
+  #   type: vm
+  #   address: 192.168.1.10
+  #   access:
+  #     ssh:
+  #       username: admin
+  #       key_path: /path/to/ssh/key
+  #       port: 22
+  #     docker:
+  #       use_local_socket: false
+  #   services:
+  #     os: {}
+  #     tomcat:
+  #       auto_discover: true
+
+  # Example: Docker host
+  # - name: docker-host-1
+  #   type: docker-host
+  #   address: docker-host-1
+  #   access:
+  #     docker:
+  #       use_local_socket: true
+  #   containers:
+  #     - name: nginx
+  #     - name: tomcat
+  #   services:
+  #     nginx:
+  #       instances:
+  #         - name: web-server
+  #           runtime: docker
+  #           container: nginx
+  #           port: 80
+
+services:
+  # OS service - basic system metrics and logs
+  os:
+    hosts:
+      - localhost
+
+  # Uncomment and configure additional services as needed:
+  # tomcat:
+  #   hosts:
+  #     - localhost
+  #   settings:
+  #     auto_discover: true
+  
+  # nginx:
+  #   hosts:
+  #     - localhost
+  #   settings:
+  #     auto_discover: true
+
+  # postgres:
+  #   hosts:
+  #     - localhost
+  #   settings:
+  #     auto_discover: true
+
+# Optional: Global access configuration
+# access:
+#   ssh:
+#     user: default-user
+#     key_path: /path/to/default/key
+#     port: 22
+#   docker:
+#     use_local_socket: true
+
+# Optional: Metadata
+# metadata:
+#   environment: initial
+#   description: "Initial client configuration"

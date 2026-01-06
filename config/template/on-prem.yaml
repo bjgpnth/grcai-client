@@ -1,0 +1,46 @@
+hosts:
+  - name: onprem-core-01
+    type: onprem
+    address: 192.168.10.10
+
+    access:
+      ssh:
+        user: root
+        key_path: /keys/onprem_root.pem
+      docker:
+        use_local_socket: true
+
+    containers:
+      - name: jenkins-core-01
+      - name: postgres-onprem-01
+
+    services:
+      os:
+        instances:
+          - name: system
+            runtime: native
+            metrics: true
+            logs:
+              - syslog
+              - kern.log
+              - auth.log
+
+      postgres:
+        instances:
+          - name: primary-db
+            runtime: docker
+            container: postgres-onprem-01
+            database: main
+            user: admin
+            password: securepass
+            port: 5432
+
+      jenkins:
+        instances:
+          - name: build-server
+            runtime: docker
+            container: jenkins-core-01
+
+metadata:
+  owner: infra-team
+  description: On-prem bare-metal + Docker hybrid

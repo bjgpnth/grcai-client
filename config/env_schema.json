@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["hosts", "services"],
+  "properties": {
+    "access": {
+      "type": "object",
+      "properties": {
+        "ssh": {
+          "type": "object",
+          "properties": {
+            "user": {"type": "string"},
+            "key_path": {"type": "string"},
+            "port": {"type": "integer"}
+          }
+        },
+        "docker": {
+          "type": "object",
+          "properties": {
+            "use_local_socket": {"type": "boolean"},
+            "tls": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "address"],
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string"},
+          "address": {"type": "string"},
+          "tags": {"type": "array", "items": {"type": "string"}},
+          "ssh": {"type": "object"}
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9_\\-]+$": {
+          "type": "object",
+          "properties": {
+            "hosts": {"type": "array", "items": {"type": "string"}},
+            "settings": {"type": "object"}
+          },
+          "required": ["hosts"]
+        }
+      }
+    },
+    "metadata": {"type": "object"}
+  }
+}
