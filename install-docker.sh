@@ -4,11 +4,12 @@
 
 set -e
 
-REPO_URL="https://github.com/yourorg/grcai-client"
+REPO_URL="https://raw.githubusercontent.com/bjgpnth/grcai-client"
 REPO_BRANCH="main"
 INSTALL_DIR="${PWD}/grcai-client"
-IMAGE_NAME="grcai/client:latest"
-CONTAINER_NAME="grcai-client-runtime"
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+IMAGE_NAME="grcai/client:${TIMESTAMP}"
+CONTAINER_NAME="grcai-client-runtime-${TIMESTAMP}"
 
 echo "========================================="
 echo "gRCAi Client - Docker Installation"

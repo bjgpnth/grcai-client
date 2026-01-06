@@ -6,9 +6,9 @@ Client runtime for gRCAi Root Cause Analysis tool. This repository contains only
 
 ### Docker Installation (Recommended)
 
-curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-docker.sh | bash### Host Installation
+curl -fsSL https://raw.githubusercontent.com/bjgpnth/grcai-client/main/install-docker.sh | bash### Host Installation
 
-curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-host.sh | bash## Prerequisites
+curl -fsSL https://raw.githubusercontent.com/bjgpnth/grcai-client/main/install-host.sh | bash## Prerequisites
 
 ### Docker Installation
 - Docker installed and running
@@ -51,9 +51,9 @@ streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0## Updating
 To update to the latest version, simply re-run the installation script:
 
 # Docker
-curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-docker.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bjgpnth/grcai-client/main/install-docker.sh | bash
 
 # Host
-curl -fsSL https://raw.githubusercontent.com/yourorg/grcai-client/main/install-host.sh | bash## Support
+curl -fsSL https://raw.githubusercontent.com/bjgpnth/grcai-client/main/install-host.sh | bash## Support
 
 For issues and questions, contact: [your-support-contact]
