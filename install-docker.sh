@@ -72,9 +72,12 @@ echo ""
 # Interactive configuration
 echo "Step 2: Configuration"
 echo "----------------------"
-read -p "GRCAI_CENTRAL_URL [http://central-service:8000]: " CENTRAL_URL
-CENTRAL_URL=${CENTRAL_URL:-http://central-service:8000}
 
+# Use defaults from Dockerfile
+UI_PORT=8501
+CENTRAL_URL="https://grcai-central-dev.militva.dev"
+
+# Only prompt for API key (required and unique per installation)
 read -sp "OPENAI_API_KEY (required): " API_KEY
 echo ""
 if [ -z "$API_KEY" ]; then
@@ -82,21 +85,10 @@ if [ -z "$API_KEY" ]; then
     exit 1
 fi
 
-read -p "UI Port [8501]: " UI_PORT
-# Trim whitespace
-UI_PORT=$(echo "$UI_PORT" | tr -d '[:space:]')
-# Set default if empty
-if [ -z "$UI_PORT" ]; then
-    UI_PORT=8501
-fi
-# Validate UI_PORT is a number
-if ! [[ "$UI_PORT" =~ ^[0-9]+$ ]]; then
-    echo "⚠️  Invalid port number, using default 8501"
-    UI_PORT=8501
-fi
-
 echo ""
 echo "✅ Configuration collected"
+echo "  - UI Port: ${UI_PORT}"
+echo "  - Central URL: ${CENTRAL_URL}"
 echo ""
 
 # Create config template if missing (in volume mount location)
@@ -147,13 +139,6 @@ mkdir -p "${HOME}/config"
 
 # Run container
 echo "Step 5: Starting container..."
-# Ensure UI_PORT is set and valid (defensive check)
-if [ -z "${UI_PORT}" ] || ! [[ "${UI_PORT}" =~ ^[0-9]+$ ]]; then
-    echo "⚠️  Port validation failed, using default 8501"
-    UI_PORT=8501
-fi
-# Final safety check - ensure it's definitely set
-UI_PORT=${UI_PORT:-8501}
 echo "Using port: ${UI_PORT}"
 docker run -d \
   --name "$CONTAINER_NAME" \
