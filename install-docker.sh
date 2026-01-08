@@ -99,17 +99,17 @@ echo ""
 echo "✅ Configuration collected"
 echo ""
 
-# Create config template if missing
-if [ ! -f "config/initial/initial.yaml" ]; then
+# Create config template if missing (in volume mount location)
+if [ ! -f "${HOME}/config/initial/initial.yaml" ]; then
     echo "Step 3: Creating initial configuration template..."
-    mkdir -p config/initial
+    mkdir -p "${HOME}/config/initial"
     if [ -f "config/template/initial.yaml.template" ]; then
-        cp config/template/initial.yaml.template config/initial/initial.yaml
-        echo "✅ Config template created at: config/initial/initial.yaml"
+        cp config/template/initial.yaml.template "${HOME}/config/initial/initial.yaml"
+        echo "✅ Config template created at: ${HOME}/config/initial/initial.yaml"
         echo "⚠️  Please edit this file with your environment details"
     else
         # Create minimal template
-        cat > config/initial/initial.yaml <<EOF
+        cat > "${HOME}/config/initial/initial.yaml" <<EOF
 hosts:
   - name: localhost
     type: vm
@@ -122,7 +122,7 @@ hosts:
 services:
   os: {}
 EOF
-        echo "✅ Minimal config created at: config/initial/initial.yaml"
+        echo "✅ Minimal config created at: ${HOME}/config/initial/initial.yaml"
         echo "⚠️  Please edit this file with your environment details"
     fi
     echo ""
@@ -195,7 +195,9 @@ echo "  # Start container:"
 echo "  docker start $CONTAINER_NAME"
 echo ""
 echo "⚠️  Next steps:"
-echo "  1. Edit config/initial/initial.yaml with your environment details"
+echo "  1. Edit configuration files in ${HOME}/config/ with your environment details"
+echo "     Templates have been copied from config/template/ if the directory was empty"
+echo "     Create environment subdirectories (e.g., ${HOME}/config/initial/initial.yaml) as needed"
 echo "  2. Restart container to apply config changes:"
 echo "     docker restart $CONTAINER_NAME"
 echo ""
