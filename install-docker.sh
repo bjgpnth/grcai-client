@@ -90,8 +90,27 @@ UI_PORT=${UI_PORT:-8501}
 CENTRAL_URL=${GRCAI_CENTRAL_URL:-"https://grcai-central-dev.militva.dev"}
 
 # Only prompt for API key (required and unique per installation)
-read -sp "OPENAI_API_KEY (required): " API_KEY
-echo ""
+# Check if API key is already set via environment variable
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+    API_KEY="${OPENAI_API_KEY}"
+    echo "Using OPENAI_API_KEY from environment variable"
+else
+    # Use /dev/tty if stdin is not a TTY (e.g., when piped from curl)
+    if [ -t 0 ]; then
+        read -sp "OPENAI_API_KEY (required): " API_KEY
+        echo ""
+    elif [ -c /dev/tty ]; then
+        read -sp "OPENAI_API_KEY (required): " API_KEY < /dev/tty
+        echo ""
+    else
+        echo "❌ Error: Cannot read OPENAI_API_KEY interactively"
+        echo "   Please set OPENAI_API_KEY environment variable:"
+        echo "   export OPENAI_API_KEY='your-api-key'"
+        echo "   Then run the installation script again"
+        exit 1
+    fi
+fi
+
 if [ -z "$API_KEY" ]; then
     echo "❌ Error: OPENAI_API_KEY is required"
     exit 1
