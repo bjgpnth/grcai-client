@@ -73,9 +73,9 @@ echo ""
 echo "Step 2: Configuration"
 echo "----------------------"
 
-# Use defaults from Dockerfile
-UI_PORT=8501
-CENTRAL_URL="https://grcai-central-dev.militva.dev"
+# Use defaults from Dockerfile (can be overridden via environment variables)
+UI_PORT=${UI_PORT:-8501}
+CENTRAL_URL=${GRCAI_CENTRAL_URL:-"https://grcai-central-dev.militva.dev"}
 
 # Only prompt for API key (required and unique per installation)
 read -sp "OPENAI_API_KEY (required): " API_KEY
