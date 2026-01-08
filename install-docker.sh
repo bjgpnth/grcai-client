@@ -6,10 +6,22 @@ set -e
 
 REPO_URL="https://github.com/bjgpnth/grcai-client"
 REPO_BRANCH="main"
-INSTALL_DIR="${PWD}/grcai-client"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+INSTALL_DIR="/tmp/grcai-client-${TIMESTAMP}"
 IMAGE_NAME="grcai/client:${TIMESTAMP}"
 CONTAINER_NAME="grcai-client-runtime-${TIMESTAMP}"
+
+# Cleanup function to remove temporary directory
+cleanup() {
+    if [ -d "$INSTALL_DIR" ]; then
+        echo ""
+        echo "Cleaning up temporary directory: $INSTALL_DIR"
+        rm -rf "$INSTALL_DIR"
+    fi
+}
+
+# Register cleanup function to run on exit
+trap cleanup EXIT
 
 echo "========================================="
 echo "gRCAi Client - Docker Installation"
