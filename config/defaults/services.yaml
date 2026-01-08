@@ -1,0 +1,15 @@
+# default service-level config (applies to all environments)
+services:
+  tomcat:
+    log_paths:
+      - /usr/local/tomcat/logs/catalina.out
+      - /usr/local/tomcat/logs/catalina.*.log
+    java_opts: "-Xms512m -Xmx1024m"
+    expected_ports:
+      - 8080
+  nginx:
+    access_log: /var/log/nginx/access.log
+    error_log: /var/log/nginx/error.log
+  postgres:
+    data_dir: /var/lib/postgresql/data
+    slow_query_log: /var/log/postgresql/slow.log

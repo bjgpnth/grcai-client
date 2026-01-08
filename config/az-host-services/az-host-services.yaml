@@ -1,0 +1,111 @@
+hosts:
+  - name: grc-dev-tc-app-1
+    type: vm
+    address: grc-dev-tc-app-1.southindia.cloudapp.azure.com
+  
+    ssh:  # Add this section
+      user: sadmin  # or whatever username your Azure VM uses
+      port: 22  # optional, defaults to 22
+      timeout: 5  # optional, defaults to 10
+      # key_path: /root/.ssh/id_ed25519
+      key_path: ~/.ssh/id_ed25519  # Will expand to /home/grcai/.ssh/id_ed25519 in container
+      allow_agent: false
+
+    # access:
+    #   docker:
+    #     use_local_socket: true  # keep for docker adapter/fallbacks if needed
+
+    services:
+      os:
+        instances:
+          - name: system
+            runtime: host
+            metrics: true
+            logs:
+              - /var/log/syslog
+              - /var/log/auth.log
+
+      nginx:
+        instances:
+          - name: nginx
+            runtime: host
+            conf_paths:
+              - /etc/nginx/nginx.conf
+            access_log: /var/log/nginx/access.log
+            error_log: /var/log/nginx/error.log
+
+      redis:
+        instances:
+          - name: redis
+            runtime: host
+            port: 6379
+            logs:
+              - /var/log/redis/redis-server.log
+
+      postgres:
+        instances:
+          - name: postgres
+            runtime: host
+            database: postgres
+            user: postgres
+            password: "StrongP@ssword"
+            port: 5432
+            logs:
+              - /var/log/postgresql/postgresql-14-main.log
+
+      kafka:
+        instances:
+          - name: kafka
+            runtime: host
+            port: 29092
+            kafka_home: /app/kafka/kafka_2.13-3.9.0
+            bootstrap_servers: localhost:29092
+            log_dirs:
+              - /app/kafka/kafka_2.13-3.9.0/logs
+              - /var/log/kafka/kraft-combined-logs  # adjust if different
+
+      tomcat:
+        instances:
+          - name: tomcat10-be-01
+            runtime: host
+            port: 8083
+            catalina_home: /app/app/tomcat10-be-01/
+            logs:
+              - /app/app/tomcat10-be-01/logs/catalina.out
+          - name: tomcat-app-01
+            runtime: host
+            port: 8082
+            catalina_home: /app/app/tomcat-app-01/
+            logs:
+              - /app/app/tomcat-app-01/logs/catalina.out
+          - name: tomcat-app-01-app-api
+            runtime: host
+            port: 8081
+            catalina_home: /app/app/tomcat-app-01-app-api/
+            logs:
+              - /app/app/tomcat-app-01-app-api/logs/catalina.out
+          - name: tomcat-app-02
+            runtime: host
+            port: 8080
+            catalina_home: /app/app/tomcat-app-02/
+            logs:
+              - /app/app/tomcat-app-02/logs/catalina.out
+
+      nodejs:
+        instances:
+          - name: nodejs-app
+            runtime: host
+            app_dir: /var/www/app
+            log_paths:
+              - /var/www/app/app.log
+              - /var/www/app/error.log
+
+      docker:
+        instances:
+          - name: docker-host
+            include_all_containers: true
+    
+
+metadata:
+  owner: azure-lab
+  description: Azure VM host-level services (local installs)

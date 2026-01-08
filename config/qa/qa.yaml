@@ -1,0 +1,134 @@
+hosts:
+  - name: ubuntu-node
+    type: vm
+    address: ubuntu-node
+
+    access:
+      ssh:
+        username: root
+        key_path: /root/.ssh/id_rsa
+        port: 22
+        allow_agent: false
+      docker:
+        use_local_socket: true
+
+    services:
+      os:
+        instances:
+          - name: system
+            runtime: docker
+            container: ubuntu-node
+            metrics: true
+            logs:
+              - syslog
+              - auth.log
+
+  - name: local-docker-host
+    type: docker-host
+    address: local-docker-host
+
+    access:
+      docker:
+        use_local_socket: true
+
+    containers:
+      - name: nginx
+      - name: redis
+      - name: postgres
+      - name: tomcat
+      - name: jenkins
+      - namd: kafka
+      - name: node-app
+      - name: mssql
+
+    services:
+      nginx:
+        instances:
+          - name: reverse-proxy
+            runtime: docker
+            container: nginx
+            port: 80
+            conf_paths:
+              - /etc/nginx/nginx.conf
+            access_log: /var/log/nginx/access.log
+            error_log: /var/log/nginx/error.log
+
+      redis:
+        instances:
+          - name: redis
+            runtime: docker
+            container: redis
+
+      postgres:
+        instances:
+          - name: primary-db
+            runtime: docker
+            container: postgres
+            database: testdb
+            user: admin
+            password: password
+            port: 5432
+
+      tomcat:
+        instances:
+          - name: tomcat-app
+            runtime: docker
+            container: tomcat
+            catalina_home: /usr/local/tomcat
+            port: 9090
+
+      jenkins:
+        instances:
+          - name: jenkins
+            runtime: docker
+            container: jenkins
+      
+      kafka:
+        instances:
+          - name: kafka
+            runtime: docker
+            container: kafka
+            port: 9092
+            mode: kraft                      # No ZooKeeper
+            logs:                             # Optional
+              - /opt/bitnami/kafka/logs
+            data_dir: /tmp/kraft-combined-logs
+
+      node-app:
+        instances:
+          - name: node-app
+            runtime: docker
+            container: node-app
+            app_dir: /app                    # Optional but useful
+      
+      nodejs:
+        instances:
+          - name: nodejs-app
+            runtime: docker
+            container: node-app
+            app_dir: /app
+            log_paths:
+              - /app/logs/app.log
+              - /app/logs/error.log
+      
+      mssql:
+        instances:
+          - name: mssql
+            runtime: docker
+            container: mssql
+            user: sa
+            password: "StrongP@ssword!"
+            port: 1433
+
+      docker:
+        instances:
+          - name: docker-host
+            # Docker adapter collects info about all containers by default
+            # Optional: filter specific containers
+            # container_filters:
+            #   name_pattern: ".*"  # Regex pattern to match container names
+            include_all_containers: true  # Collect data for all containers
+
+metadata:
+  owner: local-sandbox
+  description: Docker-only local development environment

@@ -1,0 +1,16 @@
+# default connector mapping and options
+connectors:
+  tomcat:
+    image_filter: "tomcat"
+    collect_logs: true
+    collect_stats: true
+  nginx:
+    image_filter: "nginx"
+    collect_logs: true
+  os_node:
+    probes:
+      - uname
+      - uptime
+      - df
+      - ps
+      - dmesg

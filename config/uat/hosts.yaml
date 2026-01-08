@@ -1,0 +1,9 @@
+hosts:
+  - name: dev-node-1
+    type: docker-host
+    address: 10.0.1.10
+    tags: ["dev","docker"]
+  - name: dev-node-2
+    type: docker-host
+    address: 10.0.1.11
+    tags: ["dev","docker"]

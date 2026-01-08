@@ -1,0 +1,142 @@
+############################################################
+# SANDBOX ENVIRONMENT CONFIG — DOCKER-BASED
+############################################################
+# This environment represents the docker-compose sandbox.
+# All hosts are docker containers reachable via local
+# Docker socket mounted into dev-sandbox.
+############################################################
+
+access:
+  ssh: null
+  docker:
+    use_local_socket: true
+    base_url: null
+
+############################################################
+# HOSTS
+# All hosts correspond exactly to docker-compose container names
+############################################################
+hosts:
+
+  - name: nginx
+    type: docker-host
+    address: nginx
+    docker:
+      use_local_socket: true
+    tags: ["nginx", "reverse-proxy"]
+
+  - name: postgres
+    type: docker-host
+    address: postgres
+    docker:
+      use_local_socket: true
+    tags: ["postgres", "database"]
+
+  - name: tomcat
+    type: docker-host
+    address: tomcat
+    docker:
+      use_local_socket: true
+    tags: ["tomcat", "app"]
+
+  - name: ubuntu-node
+    type: docker-container
+    address: ubuntu-node
+    docker:
+      use_local_socket: true
+    tags: ["linux", "os", "test"]
+
+  - name: jenkins
+    type: docker-host
+    address: jenkins
+    docker:
+      use_local_socket: true
+    tags: ["jenkins", "ci"]
+
+  - name: redis
+    type: docker-host
+    address: redis
+    docker:
+      use_local_socket: true
+    tags: ["redis", "cache"]
+
+############################################################
+# SERVICES
+# Each service maps to the same structure as QA env
+############################################################
+
+services:
+
+  ##########################################################
+  # NGINX
+  ##########################################################
+  nginx:
+    hosts: ["nginx"]
+    instances:
+      - name: reverse-proxy
+        container: nginx
+        conf_paths:
+          - /etc/nginx/nginx.conf
+        access_log: /var/log/nginx/access.log
+        error_log: /var/log/nginx/error.log
+
+  ##########################################################
+  # POSTGRESQL
+  ##########################################################
+  postgres:
+    hosts: ["postgres"]
+    instances:
+      - name: primary-db
+        container: postgres
+        port: 5432
+        user: admin
+        password: password
+        data_dir: /var/lib/postgresql/data
+        database: testdb 
+
+
+  ##########################################################
+  # TOMCAT
+  ##########################################################
+  tomcat:
+    hosts: ["tomcat"]
+    instances:
+      - name: tomcat-app
+        container: tomcat
+        catalina_home: /usr/local/tomcat
+
+  ##########################################################
+  # OPERATING SYSTEM (OS Adapter)
+  ##########################################################
+  os:
+    hosts:
+      - ubuntu-node
+    instances:
+      - name: ubuntu-node
+        container: ubuntu-node
+
+  ##########################################################
+  # JENKINS
+  ##########################################################
+  jenkins:
+    hosts: ["jenkins"]
+    instances:
+      - name: jenkins
+        container: jenkins
+
+  ##########################################################
+  # REDIS
+  ##########################################################
+  redis:
+    hosts: ["redis"]
+    instances:
+      - name: redis
+        container: redis
+
+
+############################################################
+# METADATA
+############################################################
+metadata:
+  owner: "local-sandbox"
+  description: "Sandbox docker-compose environment for development"

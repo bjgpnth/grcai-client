@@ -1,0 +1,6 @@
+access:
+  ssh:
+    user: ubuntu
+    key_path: /home/ops/.ssh/id_rsa
+  docker:
+    use_local_socket: true

@@ -1,0 +1,8 @@
+services:
+  tomcat:
+    hosts:
+      - dev-node-1
+    java_opts: "-Xms256m -Xmx512m"
+  nginx:
+    hosts:
+      - dev-node-2
