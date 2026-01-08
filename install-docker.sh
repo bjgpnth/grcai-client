@@ -142,7 +142,8 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
 fi
 
 # Create directories for volumes
-mkdir -p grcai_sessions
+mkdir -p "${HOME}/grcai_sessions"
+mkdir -p "${HOME}/config"
 
 # Run container
 echo "Step 5: Starting container..."
@@ -165,8 +166,8 @@ docker run -d \
   -e STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
   -e STREAMLIT_SERVER_HEADLESS=true \
   -e STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
-  -v "$(pwd)/grcai_sessions:/grcai/grcai_sessions" \
-  -v "$(pwd)/config:/grcai/config:ro" \
+  -v "${HOME}/grcai_sessions:/grcai/grcai_sessions" \
+  -v "${HOME}/config:/grcai/config" \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   "$IMAGE_NAME" \
   streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true

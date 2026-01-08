@@ -63,6 +63,10 @@ COPY config/ ./config/
 # Copy utils (utility functions)
 COPY utils/ ./utils/
 
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # CRITICAL: Do NOT copy:
 #   - llm/ directory (contains reasoning logic)
 #   - prompts/ directory (contains prompt engineering)
@@ -92,6 +96,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Switch to non-root user
 USER grcai
+
+# Set entrypoint (runs before CMD)
+# Entrypoint handles config template initialization if config directory is empty
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Default command (can be overridden)
 # For UI: streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0
