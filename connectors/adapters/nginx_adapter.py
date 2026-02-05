@@ -328,6 +328,59 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
         
         return metrics
 
+    def _collect_config_metadata(self, host_connector, container_id, config_path):
+        """
+        Collect config file metadata only (existence, size, timestamps).
+        Does NOT read config content per MVP requirements.
+        
+        Returns:
+            dict with keys: exists, path, size_bytes, modified_time, readable
+        """
+        metadata = {
+            "exists": False,
+            "path": config_path,
+            "size_bytes": None,
+            "modified_time": None,
+            "readable": False
+        }
+        
+        try:
+            # Check if file exists and get metadata
+            # Use stat command to get file info without reading content
+            stat_cmd = f"stat -c '%s|%Y' {shlex.quote(config_path)} 2>/dev/null || stat -f '%z|%m' {shlex.quote(config_path)} 2>/dev/null || echo ''"
+            stat_out = self._exec(host_connector, container_id, stat_cmd, timeout=3)
+            
+            if stat_out and stat_out.strip() and not stat_out.startswith("[") and "|" in stat_out:
+                # Parse stat output: size|mtime
+                parts = stat_out.strip().split("|")
+                if len(parts) == 2:
+                    try:
+                        size_bytes = int(parts[0])
+                        mtime_epoch = int(parts[1])
+                        from datetime import datetime, timezone
+                        modified_time = datetime.fromtimestamp(mtime_epoch, tz=timezone.utc).isoformat()
+                        
+                        metadata["exists"] = True
+                        metadata["size_bytes"] = size_bytes
+                        metadata["modified_time"] = modified_time
+                    except (ValueError, OSError):
+                        pass
+            
+            # Check if file is readable (without reading content)
+            readable_cmd = f"test -r {shlex.quote(config_path)} && echo 'readable' || echo 'not_readable'"
+            readable_out = self._exec(host_connector, container_id, readable_cmd, timeout=2)
+            if readable_out and "readable" in readable_out:
+                metadata["readable"] = True
+                # If readable, we know it exists
+                if not metadata["exists"]:
+                    metadata["exists"] = True
+                    
+        except Exception as e:
+            logger.debug(f"Config metadata collection failed for {config_path}: {e}")
+            # Metadata defaults already set to False/None
+        
+        return metadata
+
     def _get_nginx_stub_status(self, host_connector, container_id):
         """
         Try to fetch nginx stub_status metrics if available.
@@ -794,9 +847,7 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                     "version": None,
                     "process": None,
                     "listen_ports": None,
-                    "config_preview": None,
-                    "raw_config": None,
-                    "server_blocks": [],
+                    "config_metadata": None,
                     "config_test": None,
                     "access_log_tail": None,
                     "access_log_analysis": None,
@@ -827,9 +878,7 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                 "version": None,
                 "process": None,
                 "listen_ports": None,
-                "config_preview": None,
-                "raw_config": None,
-                "server_blocks": [],
+                "config_metadata": None,
                 "config_test": None,
                 "access_log_tail": None,
                 "access_log_analysis": None,
@@ -1111,9 +1160,15 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                     ps_cmd = "ps aux | grep [n]ginx || ps -ef | grep [n]ginx || true"
                     p = self._exec(host_connector, container_id, ps_cmd, timeout=5)
                     entry["process"] = (p or "").strip()
-                    entry["running"] = bool(entry["process"])
+                    # Only update running status if liveness check didn't already set it to True
+                    # Liveness check passing is more reliable than process grep (which can fail due to timing/grep patterns)
+                    if not entry.get("running", False):
+                        entry["running"] = bool(entry["process"])
                 except Exception as e:
                     entry["errors"].append(f"process: {e}")
+                    # Don't overwrite running=True if liveness check already passed
+                    if not entry.get("running", False):
+                        entry["running"] = False
 
                 # 3) listen ports - filter for nginx only
                 try:
@@ -1175,38 +1230,22 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                     entry["errors"].append(f"listen_ports: {e}")
                     entry["listen_ports"] = None
 
-                # 4) config preview (with timeout protection via _read_file's internal timeout)
+                # 4) config metadata collection (MVP: metadata only, no content reading)
                 try:
-                    # Try to read config - _read_file already has timeout protection via _exec (timeout=5)
-                    # If it takes too long, it will timeout and we'll catch the exception
-                    # For non-Docker hosts, use exec_cmd directly with explicit timeout
-                    if not container_id:
-                        # For SSH hosts, use exec_cmd with explicit timeout to prevent hangs
-                        cfg_cmd = f"timeout 5 cat {shlex.quote(conf_path)} 2>/dev/null || cat {shlex.quote(conf_path)} 2>/dev/null || echo ''"
-                        cfg_out = self._exec(host_connector, container_id, cfg_cmd, timeout=6)
-                        cfg_txt = cfg_out if cfg_out and not cfg_out.startswith("[host exec error") else None
-                    else:
-                        cfg_txt = self._read_file(host_connector, container_id, conf_path)
-                    
-                    entry["raw_config"] = cfg_txt if cfg_txt is not None else ""
-                    if cfg_txt is None:
-                        cfg_preview = "[missing]"
-                    else:
-                        cfg_preview = "\n".join((cfg_txt or "").splitlines()[:50])
-                    entry["config_preview"] = cfg_preview
-                    
-                    # Parse server blocks
-                    try:
-                        server_blocks = self._parse_server_blocks(entry.get("raw_config") or entry.get("config_preview") or "")
-                        entry["server_blocks"] = server_blocks
-                    except Exception as e:
-                        entry["errors"].append(f"parse_server_blocks: {e}")
+                    # Collect only metadata: existence, size, timestamps
+                    # Per MVP requirements: do NOT read config content
+                    entry["config_metadata"] = self._collect_config_metadata(host_connector, container_id, conf_path)
                 except Exception as e:
-                    # Config read failed or timed out - skip it gracefully
-                    logger.debug(f"Config read failed for {name}: {e}")
-                    entry["errors"].append(f"config read: {e}")
-                    entry["config_preview"] = "[config read skipped - timeout or error]"
-                    entry["raw_config"] = ""
+                    # Config metadata collection failed - record error but don't fail instance
+                    logger.debug(f"Config metadata collection failed for {name}: {e}")
+                    entry["errors"].append(f"config metadata: {e}")
+                    entry["config_metadata"] = {
+                        "exists": False,
+                        "path": conf_path,
+                        "size_bytes": None,
+                        "modified_time": None,
+                        "readable": False
+                    }
 
                 # 5) access log tail - with timeout protection
                 combined_logs_for_analysis = None  # Store original combined logs for analysis
@@ -1291,7 +1330,17 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                                             if parser and combined_logs:
                                                 log_lines = combined_logs.splitlines()
                                                 logger.info(f"✓ Got {len(log_lines)} log lines from Docker, filtering by time window {since} to {until}")
-                                                filtered_lines = filter_logs_by_time_window(log_lines, since, until, parser, max_lines=2000)
+                                                # Get host timezone from host_connector (Phase 4)
+                                                host_timezone = getattr(host_connector, 'timezone', None) if host_connector else None
+                                                if host_timezone:
+                                                    logger.info(f"🌍 Using host timezone '{host_timezone}' for Nginx log filtering (instance: {inst.get('name')}, log: {fn})")
+                                                else:
+                                                    logger.warning(f"🌍 No host timezone available for Nginx log filtering (instance: {inst.get('name')}, log: {fn}). Logs will be parsed as UTC.")
+                                                filtered_lines = filter_logs_by_time_window(
+                                                    log_lines, since, until, parser, 
+                                                    max_lines=2000,
+                                                    host_timezone=host_timezone
+                                                )
                                                 combined_logs = "\n".join(filtered_lines)
                                                 logger.info(f"✓ Filtered to {len(filtered_lines)} log lines within time window")
                                                 if len(filtered_lines) == 0 and len(log_lines) > 0:
@@ -1464,7 +1513,13 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                                         if parser and combined_logs:
                                             log_lines = combined_logs.splitlines()
                                             logger.info(f"Got {len(log_lines)} log lines from Docker, filtering by time window {since} to {until}")
-                                            filtered_lines = filter_logs_by_time_window(log_lines, since, until, parser, max_lines=2000)
+                                            # Get host timezone from host_connector (Phase 4)
+                                            host_timezone = getattr(host_connector, 'timezone', None) if host_connector else None
+                                            filtered_lines = filter_logs_by_time_window(
+                                                log_lines, since, until, parser, 
+                                                max_lines=2000,
+                                                host_timezone=host_timezone
+                                            )
                                             combined_logs = "\n".join(filtered_lines)
                                             logger.info(f"Filtered to {len(filtered_lines)} log lines within time window")
                                         else:
@@ -1709,7 +1764,13 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                                                 if parser and combined_logs:
                                                     log_lines = combined_logs.splitlines()
                                                     logger.info(f"Got {len(log_lines)} error log lines from Docker, filtering by time window {since} to {until}")
-                                                    filtered_lines = filter_logs_by_time_window(log_lines, since, until, parser, max_lines=2000)
+                                                    # Get host timezone from host_connector (Phase 4)
+                                                    host_timezone = getattr(host_connector, 'timezone', None) if host_connector else None
+                                                    filtered_lines = filter_logs_by_time_window(
+                                                        log_lines, since, until, parser, 
+                                                        max_lines=2000,
+                                                        host_timezone=host_timezone
+                                                    )
                                                     combined_logs = "\n".join(filtered_lines)
                                                     logger.info(f"Filtered to {len(filtered_lines)} error log lines within time window")
                                                 elif not combined_logs:
@@ -1808,7 +1869,17 @@ class NginxAdapter(BaseConnector, HistoricalLogCollectionMixin):
                                             if parser and combined_logs:
                                                 log_lines = combined_logs.splitlines()
                                                 logger.info(f"Got {len(log_lines)} error log lines from Docker, filtering by time window {since} to {until}")
-                                                filtered_lines = filter_logs_by_time_window(log_lines, since, until, parser, max_lines=2000)
+                                                # Get host timezone from host_connector (Phase 4)
+                                                host_timezone = getattr(host_connector, 'timezone', None) if host_connector else None
+                                                if host_timezone:
+                                                    logger.info(f"🌍 Using host timezone '{host_timezone}' for Nginx log filtering (instance: {inst.get('name')}, log: {fn})")
+                                                else:
+                                                    logger.warning(f"🌍 No host timezone available for Nginx log filtering (instance: {inst.get('name')}, log: {fn}). Logs will be parsed as UTC.")
+                                                filtered_lines = filter_logs_by_time_window(
+                                                    log_lines, since, until, parser, 
+                                                    max_lines=2000,
+                                                    host_timezone=host_timezone
+                                                )
                                                 combined_logs = "\n".join(filtered_lines)
                                                 logger.info(f"Filtered to {len(filtered_lines)} error log lines within time window")
                                         else:

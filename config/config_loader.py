@@ -1,7 +1,10 @@
 # config/config_loader.py
 
 import yaml
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # class ConfigLoader:
 #     def __init__(self, base_dir="config"):
@@ -140,3 +143,95 @@ class ConfigLoader:
                 result[key] = value
         
         return result
+    
+    def get_config_expectations(self, env_name: str, explicit_path: str = None) -> dict:
+        """
+        Extract config_expectations from environment YAML.
+        
+        Handles both formats:
+        1. Top-level services (legacy): services.nginx.config_expectations
+        2. Host-nested services (current): hosts[].services.nginx.config_expectations
+        
+        Args:
+            env_name: Environment name
+            explicit_path: Optional explicit path (file or directory)
+        
+        Returns:
+            {
+                "nginx": {
+                    "enabled": True,
+                    "responsibilities": ["routing", "reverse_proxy"],
+                    "notes": "..."
+                },
+                ...
+            }
+            
+        Returns empty dict if no config_expectations found or if environment doesn't exist.
+        """
+        try:
+            env_config = self.load_environment(env_name, explicit_path)
+            logger.debug(f"Loaded environment config for '{env_name}': keys={list(env_config.keys())}")
+        except (FileNotFoundError, ValueError) as e:
+            logger.warning(f"Failed to load environment '{env_name}': {e}")
+            return {}
+        
+        config_expectations = {}
+        
+        # First, check for top-level services (legacy format)
+        services = env_config.get("services", {})
+        if isinstance(services, dict) and services:
+            logger.debug(f"Found top-level services: {list(services.keys())}")
+            for component_name, component_config in services.items():
+                if not isinstance(component_config, dict):
+                    continue
+                
+                expectations = component_config.get("config_expectations")
+                if isinstance(expectations, dict) and expectations.get("enabled", False):
+                    config_expectations[component_name] = {
+                        "enabled": True,
+                        "responsibilities": expectations.get("responsibilities", []),
+                        "notes": expectations.get("notes", "")
+                    }
+                    logger.debug(f"Found config_expectations for '{component_name}' in top-level services")
+        
+        # Then, check for services nested under hosts[] (current format)
+        hosts = env_config.get("hosts", [])
+        if isinstance(hosts, list) and hosts:
+            logger.debug(f"Found {len(hosts)} hosts, checking for nested services")
+            for host in hosts:
+                if not isinstance(host, dict):
+                    continue
+                
+                host_name = host.get("name") or host.get("address", "unknown")
+                host_services = host.get("services", {})
+                if not isinstance(host_services, dict):
+                    continue
+                
+                logger.debug(f"Host '{host_name}' has services: {list(host_services.keys())}")
+                for component_name, component_config in host_services.items():
+                    if not isinstance(component_config, dict):
+                        continue
+                    
+                    expectations = component_config.get("config_expectations")
+                    if isinstance(expectations, dict) and expectations.get("enabled", False):
+                        # If component already exists, merge responsibilities (avoid duplicates)
+                        if component_name in config_expectations:
+                            existing_resp = set(config_expectations[component_name]["responsibilities"])
+                            new_resp = set(expectations.get("responsibilities", []))
+                            merged_resp = list(existing_resp | new_resp)
+                            config_expectations[component_name]["responsibilities"] = merged_resp
+                            logger.debug(f"Merged config_expectations for '{component_name}' from host '{host_name}' (responsibilities: {merged_resp})")
+                        else:
+                            config_expectations[component_name] = {
+                                "enabled": True,
+                                "responsibilities": expectations.get("responsibilities", []),
+                                "notes": expectations.get("notes", "")
+                            }
+                            logger.debug(f"Found config_expectations for '{component_name}' from host '{host_name}'")
+        
+        if config_expectations:
+            logger.info(f"Extracted config_expectations for {len(config_expectations)} components: {list(config_expectations.keys())}")
+        else:
+            logger.warning(f"No config_expectations found in environment '{env_name}'")
+        
+        return config_expectations

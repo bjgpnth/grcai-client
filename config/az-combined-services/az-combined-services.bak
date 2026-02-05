@@ -33,13 +33,6 @@ hosts:
               - /etc/nginx/nginx.conf
             access_log: /var/log/nginx/access.log
             error_log: /var/log/nginx/error.log
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - routing
-            - reverse_proxy
-            - tls_termination
-          notes: "Nginx handles HTTP routing, reverse proxy, and TLS termination"
 
       redis:
         instances:
@@ -48,12 +41,6 @@ hosts:
             port: 6379
             logs:
               - /var/log/redis/redis-server.log
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - persistence
-            - message_brokering
-          notes: "Redis provides caching/persistence and message brokering capabilities"
 
       postgres:
         instances:
@@ -65,11 +52,6 @@ hosts:
             port: 5432
             logs:
               - /var/log/postgresql/postgresql-14-main.log
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - persistence
-          notes: "PostgreSQL provides relational database persistence"
 
       kafka:
         instances:
@@ -81,11 +63,6 @@ hosts:
             log_dirs:
               - /app/kafka/kafka_2.13-3.9.0/logs
               - /var/log/kafka/kraft-combined-logs  # adjust if different
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - message_brokering
-          notes: "Kafka provides distributed message brokering and event streaming"
 
       tomcat:
         instances:
@@ -113,14 +90,6 @@ hosts:
             catalina_home: /app/app/tomcat-app-02/
             logs:
               - /app/app/tomcat-app-02/logs/catalina.out
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - application_serving
-            - connectors
-            - ports
-            - context_paths
-          notes: "Tomcat serves Java web applications with multiple connectors and context paths"
 
       nodejs:
         instances:
@@ -130,11 +99,6 @@ hosts:
             log_paths:
               - /var/www/app/app.log
               - /var/www/app/error.log
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - application_serving
-          notes: "Node.js serves JavaScript/TypeScript web applications"
 
       docker:
         instances:
@@ -177,13 +141,6 @@ hosts:
               - /etc/nginx/nginx.conf
             access_log: /var/log/nginx/access.log
             error_log: /var/log/nginx/error.log
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - routing
-            - reverse_proxy
-            - tls_termination
-          notes: "Nginx handles HTTP routing, reverse proxy, and TLS termination"
 
       redis:
         instances:
@@ -191,12 +148,6 @@ hosts:
             runtime: docker
             container: redis
             port: 6379
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - persistence
-            - message_brokering
-          notes: "Redis provides caching/persistence and message brokering capabilities"
 
       postgres:
         instances:
@@ -207,11 +158,6 @@ hosts:
             user: admin
             password: "password"
             port: 5432
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - persistence
-          notes: "PostgreSQL provides relational database persistence"
 
       mysql:
         instances:
@@ -222,11 +168,6 @@ hosts:
             user: root
             password: "<set-password>"
             port: 3306
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - persistence
-          notes: "MySQL provides relational database persistence"
 
       kafka:
         instances:
@@ -240,11 +181,6 @@ hosts:
             bootstrap_servers: localhost:9092
             logs:
               - /opt/kafka/logs
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - message_brokering
-          notes: "Kafka provides distributed message brokering and event streaming"
 
       tomcat:
         instances:
@@ -254,14 +190,6 @@ hosts:
             catalina_home: /usr/local/tomcat
             logs:
               - /usr/local/tomcat/logs/catalina.out
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - application_serving
-            - connectors
-            - ports
-            - context_paths
-          notes: "Tomcat serves Java web applications with multiple connectors and context paths"
 
       nodejs:
         instances:
@@ -272,22 +200,12 @@ hosts:
             log_paths:
               - /app/logs/app.log
               - /app/logs/error.log
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - application_serving
-          notes: "Node.js serves JavaScript/TypeScript web applications"
 
       jenkins:
         instances:
           - name: jenkins
             runtime: docker
             container: jenkins
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - application_serving
-          notes: "Jenkins provides CI/CD pipeline execution and job management"
 
       # Docker adapter collects Docker daemon information from the host
       # Note: This adapter does NOT use the 'instances' structure - it reads
@@ -316,11 +234,6 @@ hosts:
             user: sa
             password: "StrongP@ssword!"
             trust_server_certificate: true
-        config_expectations:
-          enabled: true
-          responsibilities:
-            - persistence
-          notes: "Microsoft SQL Server provides relational database persistence"
 
 metadata:
   owner: azure-lab

@@ -63,7 +63,8 @@ class EvidenceStore:
         environment,
         collected_at=None,
         session_id=None,
-        host_collection_status=None
+        host_collection_status=None,
+        constraints=None
     ):
         """
         Save evidence under:
@@ -77,6 +78,7 @@ class EvidenceStore:
             environment: Environment name (e.g., "qa", "prod")
             collected_at: ISO 8601 timestamp when collection started (optional)
             session_id: Pre-generated session ID (optional, will generate if not provided)
+            constraints: Minimal constraints dict (enabled, responsibilities) to embed in evidence (optional)
         """
         env_dir = self.base_dir / environment
         env_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +106,7 @@ class EvidenceStore:
             "collected_at": collected_at_str,
             "saved_at": saved_at_str,
             "issue_time": context.get("issue_time") if context else None,
+            "user_timezone": context.get("user_timezone") if context else None,  # Store user timezone in metadata
             "observations": context.get("observations") if context else None,
             "requested_components": context.get("components", []) if context else [],
             "host_collection_status": host_collection_status or {},
@@ -121,6 +124,13 @@ class EvidenceStore:
             "context": context,
             "environment": environment,
         }
+        
+        # Embed minimal constraints in evidence (security hardening)
+        # Constraints are extracted client-side and contain only enabled flag and responsibilities
+        if constraints:
+            data["_constraints"] = {
+                "config_expectations": constraints
+            }
 
         # Generate filename from session_id (remove UUID suffix for readability)
         # Format: rca_YYYY-MM-DD_HH-MM-SS.json

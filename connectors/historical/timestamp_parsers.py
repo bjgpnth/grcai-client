@@ -10,6 +10,14 @@ import re
 from datetime import datetime
 from typing import Optional, Callable, Dict
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    try:
+        from backports.zoneinfo import ZoneInfo
+    except ImportError:
+        ZoneInfo = None
+
 logger = None  # Will be initialized when logging is available
 
 
@@ -104,12 +112,17 @@ class TimestampParserRegistry:
 #         return None
     
 @TimestampParserRegistry.register("nginx_access")
-def parse_nginx_access_timestamp(line: str) -> Optional[datetime]:
+def parse_nginx_access_timestamp(line: str, host_timezone: Optional[str] = None) -> Optional[datetime]:
     """
     Parse Nginx access log timestamps with or without timezone.
     Supports both:
       [01/Dec/2025:11:03:06 +0000]
       [01/Dec/2025:11:03:06]
+    
+    Args:
+        line: Log line from Nginx access.log
+        host_timezone: Optional IANA timezone string (e.g., 'Asia/Kolkata')
+                      If provided and timestamp is naive, will localize to this timezone
     """
     if not line:
         return None
@@ -128,8 +141,16 @@ def parse_nginx_access_timestamp(line: str) -> Optional[datetime]:
     if match:
         ts = match.group(1)
         try:
-            # Assume UTC if no timezone
-            return datetime.strptime(ts, "%d/%b/%Y:%H:%M:%S").replace(tzinfo=None)
+            dt = datetime.strptime(ts, "%d/%b/%Y:%H:%M:%S")
+            # If naive and host_timezone provided, localize to host timezone
+            if dt.tzinfo is None and host_timezone and ZoneInfo:
+                try:
+                    tz = ZoneInfo(host_timezone)
+                    dt = dt.replace(tzinfo=tz)
+                except Exception:
+                    # Invalid timezone, leave as naive (will assume UTC later)
+                    pass
+            return dt
         except:
             return None
 
@@ -198,7 +219,7 @@ def parse_nginx_error_timestamp(line: str) -> Optional[datetime]:
 # ============================================================================
 
 @TimestampParserRegistry.register("tomcat")
-def parse_tomcat_timestamp(line: str) -> Optional[datetime]:
+def parse_tomcat_timestamp(line: str, host_timezone: Optional[str] = None) -> Optional[datetime]:
     """
     Parse Tomcat catalina.out timestamp.
     
@@ -209,6 +230,8 @@ def parse_tomcat_timestamp(line: str) -> Optional[datetime]:
     
     Args:
         line: Log line from Tomcat catalina.out or Docker logs
+        host_timezone: Optional IANA timezone string (e.g., 'Asia/Kolkata')
+                      If provided and timestamp is naive, will localize to this timezone
         
     Returns:
         Parsed datetime or None if not found/invalid
@@ -224,6 +247,13 @@ def parse_tomcat_timestamp(line: str) -> Optional[datetime]:
         try:
             ts_str = match.group(1)
             dt = datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%S")
+            # Docker timestamps are typically UTC, but if naive and host_timezone provided, localize
+            if dt.tzinfo is None and host_timezone and ZoneInfo:
+                try:
+                    tz = ZoneInfo(host_timezone)
+                    dt = dt.replace(tzinfo=tz)
+                except Exception:
+                    pass
             return dt
         except (ValueError, AttributeError):
             pass
@@ -238,6 +268,14 @@ def parse_tomcat_timestamp(line: str) -> Optional[datetime]:
             ts_str = match.group(1)
             # Parse format: "20-Nov-2025 11:44:53.965"
             dt = datetime.strptime(ts_str, "%d-%b-%Y %H:%M:%S.%f")
+            # If naive and host_timezone provided, localize to host timezone
+            if dt.tzinfo is None and host_timezone and ZoneInfo:
+                try:
+                    tz = ZoneInfo(host_timezone)
+                    dt = dt.replace(tzinfo=tz)
+                except Exception:
+                    # Invalid timezone, leave as naive (will assume UTC later)
+                    pass
             return dt
         except (ValueError, AttributeError):
             pass

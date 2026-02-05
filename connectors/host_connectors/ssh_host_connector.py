@@ -30,6 +30,10 @@ except Exception:
     HAS_PARAMIKO = False
 
 from connectors.host_connectors.base_host_connector import BaseHostConnector
+from typing import Optional
+import logging
+
+logger = logging.getLogger("grcai.connectors.host")
 
 
 DEFAULT_TIMEOUT = 5
@@ -42,7 +46,8 @@ def _mk_result(cmd: str, stdout: str = "", stderr: str = "", rc: int = 0, error:
 class SSHHostConnector(BaseHostConnector):
     def __init__(self, host_info: dict, global_access: dict | None = None):
         resolved = host_info or {}
-        super().__init__(host_info=resolved)
+        # Don't query timezone immediately - need SSH connection first
+        super().__init__(host_info=resolved, query_timezone_immediately=False)
 
         self.global_access = global_access or {}
 
@@ -71,6 +76,8 @@ class SSHHostConnector(BaseHostConnector):
         # attempt to connect; tests may monkeypatch _connect to a no-op
         try:
             self._connect()
+            # After connection is established, query timezone
+            self._query_host_timezone()
         except Exception as e:
             # Store connection error instead of silently swallowing
             # This allows us to report connection failures properly
@@ -79,6 +86,8 @@ class SSHHostConnector(BaseHostConnector):
             self._sftp = None
             # For remote hosts (VM), we should report connection failures
             # For local hosts or test scenarios, connection might not be required
+            # Still try to query timezone (might use config fallback)
+            self._query_host_timezone()
 
     # -----------------------
     # Internal connection
@@ -288,6 +297,72 @@ class SSHHostConnector(BaseHostConnector):
                 return False
         res = self.exec_cmd(f"test -f {shlex.quote(path)} && echo yes || echo no", timeout=timeout)
         return "yes" in (res.get("stdout") or "")
+
+    # -----------------------
+    # TIMEZONE QUERY (Phase 2)
+    # -----------------------
+    def _query_timezone_runtime(self) -> Optional[str]:
+        """
+        Query timezone via SSH.
+        
+        Tries multiple methods:
+        1. timedatectl (most reliable on Linux)
+        2. /etc/timezone (Debian/Ubuntu)
+        3. date +%Z (returns abbreviation, need to map to IANA)
+        """
+        host_name = self.host_name or "unknown"
+        
+        # Method 1: timedatectl (most reliable)
+        try:
+            result = self.exec_cmd("timedatectl | grep 'Time zone' | awk '{print $3}'")
+            if result.get("rc") == 0 and result.get("stdout"):
+                tz_str = result["stdout"].strip()
+                if tz_str:
+                    logger.debug(f"Host '{host_name}': Timezone queried via timedatectl: {tz_str}")
+                    return tz_str
+        except Exception as e:
+            logger.debug(f"Host '{host_name}': timedatectl query failed: {e}")
+        
+        # Method 2: /etc/timezone (Debian/Ubuntu)
+        try:
+            result = self.read_file("/etc/timezone")
+            if result.get("rc") == 0 and result.get("stdout"):
+                tz_str = result["stdout"].strip()
+                if tz_str:
+                    logger.debug(f"Host '{host_name}': Timezone queried via /etc/timezone: {tz_str}")
+                    return tz_str
+        except Exception as e:
+            logger.debug(f"Host '{host_name}': /etc/timezone query failed: {e}")
+        
+        # Method 3: date +%Z (returns abbreviation, need to map to IANA)
+        try:
+            result = self.exec_cmd("date +%Z")
+            if result.get("rc") == 0 and result.get("stdout"):
+                tz_abbr = result["stdout"].strip()
+                # Map common abbreviations to IANA (limited mapping)
+                tz_map = {
+                    "IST": "Asia/Kolkata",
+                    "EST": "America/New_York",
+                    "EDT": "America/New_York",
+                    "PST": "America/Los_Angeles",
+                    "PDT": "America/Los_Angeles",
+                    "CST": "America/Chicago",
+                    "CDT": "America/Chicago",
+                    "MST": "America/Denver",
+                    "MDT": "America/Denver",
+                    "UTC": "UTC",
+                    "GMT": "Europe/London",
+                    "BST": "Europe/London",
+                }
+                iana_tz = tz_map.get(tz_abbr)
+                if iana_tz:
+                    logger.debug(f"Host '{host_name}': Timezone queried via date +%Z: {tz_abbr} -> {iana_tz}")
+                    return iana_tz
+        except Exception as e:
+            logger.debug(f"Host '{host_name}': date +%Z query failed: {e}")
+        
+        logger.debug(f"Host '{host_name}': All timezone query methods failed")
+        return None
 
     # -----------------------
     # list_containers: used by tests expecting {'ok': True, 'containers': [...]}

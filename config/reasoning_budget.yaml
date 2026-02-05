@@ -1,0 +1,88 @@
+# config/reasoning_budget.yaml
+# Reasoning budget configuration for LLM evidence governance
+
+reasoning_budget:
+  # Token limits (90% of provider TPM limit for safety margin)
+  max_tokens: 180000  # For 200K TPM limit (gpt-4.1-long-context)
+  safety_margin_percent: 90
+  
+  # Log truncation limits
+  log_truncation:
+    default_max_lines: 100
+    error_log_max_lines: 500  # Reduced from 1000 for better token management (time-aware prioritization still preserves critical errors)
+    access_log_max_lines: 50   # Keep fewer access logs
+    thread_dump_max_lines: 50
+    http_response_max_chars: 200
+  
+  # Time window settings for time-aware truncation
+  time_windows:
+    primary_window_minutes: 15  # ±15 minutes from issue_time (highest priority)
+    secondary_window_minutes: 30  # ±30 minutes from issue_time (medium priority)
+    recent_lines_fallback: 50  # Last N lines as context fallback
+  
+  # Error pattern definitions (regex patterns)
+  error_patterns:
+    - "OutOfMemoryError"
+    - "SEVERE"
+    - "ERROR"
+    - "Exception"
+    - "FATAL"
+    - "CRITICAL"
+    - "HTTP Status 5\\d{2}"  # HTTP 5xx errors
+    - "status=5\\d{2}"  # Alternative 5xx format
+    - "HTTP Status 4\\d{2}"  # HTTP 4xx errors
+    - "status=4\\d{2}"  # Alternative 4xx format
+    - "deadlock"
+    - "ConnectionPool.*exhausted"
+    - "GC overhead limit exceeded"
+  
+  # Tier definitions
+  tiers:
+    tier1_always_include:
+      - error_summaries
+      - stack_traces
+      - anomalous_metrics
+      - failing_components
+      - status_code_counts
+      - access_log_analysis
+      - metrics
+      - errors_arrays
+    
+    tier2_conditional:
+      - logs_near_failure_time
+      - affected_hosts_only
+      - pattern_matched_entries
+      - time_windowed_logs
+    
+    tier3_never_include:
+      - healthy_component_data
+      - full_raw_logs
+      - debug_level_noise
+      - verbose_http_responses
+      - full_thread_dumps
+  
+  # Multi-pass RCA budgets
+  multipass_budgets:
+    component_budget: 30000  # Per-component budget for Pass 1 (increased from 20K)
+    correlation_budget: 30000  # Budget for Pass 2 (cross-component correlation)
+    synthesis_budget: 20000  # Budget for Pass 3 (final synthesis)
+    component_budget_tolerance: 1.1  # Allow 10% overage for components
+  
+  # Model-specific overrides
+  model_overrides:
+    "gpt-4.1":
+      max_tokens: 180000  # Rate limit (TPM)
+      max_context_length: 128000  # Hard context length limit
+    "gpt-4.1-long-context":
+      max_tokens: 180000  # Rate limit (TPM)
+      max_context_length: 128000  # Hard context length limit
+    "gpt-4o-mini":
+      max_tokens: 500000  # Higher limit
+      max_context_length: 128000
+    "gpt-4o":
+      max_tokens: 400000
+      max_context_length: 128000
+    "gpt-4-turbo":
+      max_tokens: 400000
+      max_context_length: 128000
+

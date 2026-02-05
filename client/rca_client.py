@@ -1,7 +1,12 @@
 # client/rca_client.py
 """
-RCA Client - HTTP client wrapper for Central Reasoning Service.
-Implements same interface as LLMReasoner for drop-in replacement with feature flag support.
+HTTP client for Central Reasoning Service with mandatory evidence sanitization.
+
+This module provides a secure client for communicating with the untrusted
+central service. All evidence is sanitized before transmission to prevent
+data leakage.
+
+The client implements the same interface as LLMReasoner for compatibility.
 """
 
 import os
@@ -9,10 +14,12 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+from client.evidence_sanitizer import sanitize_evidence, validate_no_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +77,9 @@ class RCAClient:
         """
         Make HTTP request to Central service with retry logic.
         
+        MANDATORY: All evidence is sanitized before transmission to prevent
+        sensitive data leakage to the untrusted central service.
+        
         Args:
             endpoint: API endpoint (e.g., "/api/v1/rca/analyze")
             evidence: Evidence dictionary
@@ -81,11 +91,26 @@ class RCAClient:
         Raises:
             Exception: If all retries fail
         """
+        # MANDATORY SANITIZATION - no exceptions
+        logger.info("Sanitizing evidence before transmission to central service...")
+        sanitized_evidence, sanitization_stats = sanitize_evidence(evidence, mask_sensitive=True)
+        
+        # Validate no sensitive data remains
+        violations = validate_no_sensitive_data(sanitized_evidence)
+        if violations:
+            logger.warning(f"⚠️ Found {len(violations)} potential sensitive data violations after sanitization")
+            for violation in violations[:5]:  # Log first 5
+                logger.warning(f"  - {violation}")
+        
+        logger.info(f"Evidence sanitization complete: {sanitization_stats.get('ips_masked', 0)} IPs, "
+                   f"{sanitization_stats.get('tokens_masked', 0)} tokens, "
+                   f"{sanitization_stats.get('emails_masked', 0)} emails masked")
+        
         url = f"{self.central_url}{endpoint}"
         
-        # Prepare request
+        # Prepare request with sanitized evidence
         payload = {
-            "evidence": evidence,
+            "evidence": sanitized_evidence,
             "environment": self.environment
         }
         

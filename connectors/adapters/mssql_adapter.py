@@ -700,8 +700,9 @@ class MSSQLAdapter(BaseConnector, HistoricalLogCollectionMixin):
             sql_available = HAS_PYODBC or HAS_PYMSSQL
             
             if not sql_available:
-                entry["version"] = "Library not available (pyodbc/pymssql required)"
-                entry["note"] = "MSSQL adapter requires pyodbc or pymssql for SQL queries. Install with: pip install pyodbc. Logs will still be collected."
+                entry["version"] = "[COLLECTOR_LIMITATION] SQL queries unavailable (pyodbc/pymssql not installed on collector)"
+                entry["note"] = "[COLLECTOR_LIMITATION] MSSQL adapter cannot run SQL queries because pyodbc/pymssql is not installed on the collector. This is NOT a production failure. Logs are still collected successfully."
+                entry["collector_limitation"] = True  # Flag for evidence reducer to potentially exclude
             else:
                 try:
                     # --- Version ---

@@ -20,17 +20,20 @@ def filter_logs_by_time_window(
     since: datetime,
     until: datetime,
     parser_func: Callable[[str], Optional[datetime]],
-    max_lines: Optional[int] = None
+    max_lines: Optional[int] = None,
+    host_timezone: Optional[str] = None
 ) -> List[str]:
     """
     Filter log lines by time window using a timestamp parser.
     
     Args:
         log_lines: List of log lines to filter
-        since: Start of time window (inclusive)
-        until: End of time window (inclusive)
+        since: Start of time window (UTC, timezone-aware or naive)
+        until: End of time window (UTC, timezone-aware or naive)
         parser_func: Function to parse timestamp from log line
+                    Should accept (line, host_timezone) if host_timezone is provided
         max_lines: Maximum lines to return (None = no limit)
+        host_timezone: Optional IANA timezone string for parsing naive timestamps
         
     Returns:
         Filtered list of log lines within time window
@@ -40,23 +43,36 @@ def filter_logs_by_time_window(
     for line in log_lines:
         if not line or not line.strip():
             continue
-            
-        # Parse timestamp from line
-        timestamp = parser_func(line)
+        
+        # Parse timestamp from line (pass host_timezone if parser supports it)
+        timestamp = None
+        if host_timezone:
+            # Check if parser accepts host_timezone parameter
+            import inspect
+            try:
+                sig = inspect.signature(parser_func)
+                if 'host_timezone' in sig.parameters:
+                    timestamp = parser_func(line, host_timezone=host_timezone)
+                else:
+                    timestamp = parser_func(line)
+            except Exception:
+                # Fallback if inspection fails
+                timestamp = parser_func(line)
+        else:
+            timestamp = parser_func(line)
         
         if timestamp:
             # Normalize timezone for comparison
-            # Make both timestamp and window boundaries timezone-aware for comparison
             from datetime import timezone
             
-            # Normalize timestamp to UTC if it has timezone
+            # Normalize timestamp to UTC
             if timestamp.tzinfo is not None:
                 timestamp = timestamp.astimezone(timezone.utc)
             else:
-                # If timestamp is naive, assume UTC
+                # If timestamp is naive, assume UTC (should have been localized by parser if host_timezone was provided)
                 timestamp = timestamp.replace(tzinfo=timezone.utc)
             
-            # Normalize since/until to UTC if they have timezone
+            # Normalize since/until to UTC
             since_normalized = since
             if since.tzinfo is not None:
                 since_normalized = since.astimezone(timezone.utc)

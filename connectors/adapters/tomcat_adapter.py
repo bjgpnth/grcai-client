@@ -565,7 +565,17 @@ class TomcatAdapter(BaseConnector, HistoricalLogCollectionMixin):
                 if parser and filter_by_timestamp:
                     from connectors.historical.log_time_filter import filter_logs_by_time_window
                     log_lines = content.splitlines()
-                    filtered_lines = filter_logs_by_time_window(log_lines, since_dt, until_dt, parser, max_lines=max_lines)
+                    # Get host timezone from host_connector (Phase 4)
+                    host_timezone = getattr(host_connector, 'timezone', None) if host_connector else None
+                    if host_timezone:
+                        logger.info(f"🌍 Using host timezone '{host_timezone}' for Tomcat log filtering (log: {fn})")
+                    else:
+                        logger.warning(f"🌍 No host timezone available for Tomcat log filtering (log: {fn}). Logs will be parsed as UTC.")
+                    filtered_lines = filter_logs_by_time_window(
+                        log_lines, since_dt, until_dt, parser, 
+                        max_lines=max_lines,
+                        host_timezone=host_timezone
+                    )
                     filtered_content = "\n".join(filtered_lines)
                     if filtered_content:
                         combined.append(f"=== FILE: {fn} ===\n{filtered_content}")

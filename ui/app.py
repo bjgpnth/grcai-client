@@ -12,6 +12,7 @@ GRCAI Multi-Host RCA UI - Streamlit Application
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import datetime, date, time, timezone
 from pathlib import Path
 import json
@@ -20,6 +21,7 @@ import os
 import yaml
 import pandas as pd
 import re
+import logging
 
 # Make GRCAI modules importable
 BASE = Path(__file__).resolve().parents[1]
@@ -34,7 +36,27 @@ from ui.components.log_viewer import format_log_entry
 from ui.components.evidence_highlights import render_evidence_highlights
 from ui.components.llm_input_review import render_llm_input_review
 from ui.components.multipass_progress import create_progress_tracker
-from ui.utils.helpers import safe_get, load_evidence_json
+from ui.utils.helpers import (
+    safe_get,
+    load_evidence_json,
+    format_datetime_local,
+    format_datetime_short,
+    format_time_only
+)
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    try:
+        from backports.zoneinfo import ZoneInfo
+    except ImportError:
+        ZoneInfo = None
+
+# Configure logger for timezone conversion and other internal operations
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s %(message)s'
+)
 
 
 # -------------------------------------------------------------
@@ -73,6 +95,141 @@ st.set_page_config(page_title="GRCAI - RCA Assistant", layout="wide")
 
 # Main title with smaller font (reduced by 60-70% - using h4 instead of h1)
 st.markdown('#### gRCA*i* – *guided RCA intelligence*')
+# Inject JavaScript to detect browser timezone
+# Use postMessage to communicate from iframe to parent (to avoid sandbox restrictions)
+query_params = st.query_params
+if "browser_tz" not in query_params:
+    # Use localStorage + polling as a reliable fallback since postMessage listener might not execute
+    # The iframe will write to localStorage, and the main page will check and reload
+    st.markdown("""
+    <script>
+    // Check localStorage for timezone (written by iframe) and reload if found
+    // This is a fallback method that's more reliable than postMessage
+    (function() {
+        try {
+            // Check if we already have browser_tz in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('browser_tz')) {
+                console.log('[Timezone] browser_tz already in URL, skipping check');
+                return;
+            }
+            
+            // Check localStorage for timezone (set by iframe)
+            const storedTz = localStorage.getItem('grcaibrowser_tz');
+            if (storedTz) {
+                console.log('[Timezone] Found timezone in localStorage:', storedTz);
+                // Add to URL and reload
+                urlParams.set('browser_tz', storedTz);
+                const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+                console.log('[Timezone] Reloading main page with timezone:', newUrl);
+                localStorage.removeItem('grcaibrowser_tz'); // Clear after use
+                window.location.replace(newUrl);
+                return;
+            }
+            
+            // Set up polling to check for timezone in localStorage
+            let pollCount = 0;
+            const maxPolls = 20; // Poll for 2 seconds (20 * 100ms)
+            const pollInterval = setInterval(function() {
+                pollCount++;
+                const tz = localStorage.getItem('grcaibrowser_tz');
+                if (tz) {
+                    console.log('[Timezone] Detected timezone via polling:', tz);
+                    clearInterval(pollInterval);
+                    urlParams.set('browser_tz', tz);
+                    const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+                    localStorage.removeItem('grcaibrowser_tz');
+                    window.location.replace(newUrl);
+                } else if (pollCount >= maxPolls) {
+                    console.log('[Timezone] Polling timeout, timezone not detected');
+                    clearInterval(pollInterval);
+                }
+            }, 100); // Poll every 100ms
+            
+            // Also set up message listener as backup
+            window.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'TIMEZONE_DETECTED') {
+                    const browserTz = event.data.timezone;
+                    console.log('[Timezone] ✅ Received timezone via postMessage:', browserTz);
+                    clearInterval(pollInterval);
+                    urlParams.set('browser_tz', browserTz);
+                    const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+                    window.location.replace(newUrl);
+                }
+            }, false);
+        } catch (e) {
+            console.error('[Timezone] Error in main page script:', e);
+        }
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # Inject JavaScript in iframe to detect timezone and send message to parent
+    try:
+        import streamlit.components.v1 as components
+        
+        components.html("""
+        <script>
+        (function() {
+            try {
+                // Detect browser timezone
+                const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                console.log('[Timezone] Detected browser timezone:', browserTz);
+                
+                if (!browserTz) {
+                    console.warn('[Timezone] Could not detect browser timezone');
+                    return;
+                }
+                
+                // Store timezone in localStorage (primary method - more reliable than postMessage)
+                // The main page will poll localStorage and reload
+                try {
+                    localStorage.setItem('grcaibrowser_tz', browserTz);
+                    console.log('[Timezone] ✅ Stored timezone in localStorage:', browserTz);
+                } catch (e) {
+                    console.error('[Timezone] ❌ Failed to store in localStorage:', e);
+                }
+                
+                // Also try postMessage as backup (in case main page listener works)
+                try {
+                    window.parent.postMessage({
+                        type: 'TIMEZONE_DETECTED',
+                        timezone: browserTz
+                    }, '*');
+                    console.log('[Timezone] ✅ Also sent message via postMessage');
+                } catch (e2) {
+                    console.error('[Timezone] ❌ Failed to send postMessage:', e2);
+                }
+            } catch (e) {
+                console.error('[Timezone] Error detecting timezone:', e);
+            }
+        })();
+        </script>
+        """, height=0)
+        logger.info("JavaScript timezone detection script injected via components.html with postMessage")
+    except ImportError:
+        logger.warning("streamlit.components.v1 not available, falling back to st.markdown()")
+    st.markdown("""
+    <script>
+    (function() {
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('browser_tz')) return;
+            
+            const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (browserTz) {
+                urlParams.set('browser_tz', browserTz);
+                const newUrl = window.location.pathname + '?' + urlParams.toString();
+                if (window.location.href !== newUrl) {
+                    window.location.replace(newUrl);
+                }
+            }
+        } catch (e) {
+            console.error('[Timezone] Error:', e);
+        }
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
 # Initialize session state
 if "evidence_file" not in st.session_state:
@@ -88,10 +245,26 @@ if "selected_model" not in st.session_state:
 if "selected_env" not in st.session_state:
     st.session_state["selected_env"] = None
 
-# Check query parameters for tab persistence
+# Check query parameters for tab persistence and browser timezone
 query_params = st.query_params
 if "tab" in query_params:
     st.session_state["active_main_tab"] = query_params["tab"]
+
+# Detect browser timezone via JavaScript and query params
+# Browser timezone is detected client-side and passed via query param
+# IMPORTANT: Check query_params first, as JavaScript may have just set it
+logger.debug(f"Query params: {dict(query_params)}")
+if "browser_tz" in query_params:
+    browser_tz_from_param = query_params["browser_tz"]
+    st.session_state["browser_timezone"] = browser_tz_from_param
+    logger.info(f"✅ Browser timezone detected from query param: {browser_tz_from_param}")
+elif "browser_timezone" in st.session_state:
+    # Already set in session state from previous load
+    logger.info(f"✅ Browser timezone from session state: {st.session_state['browser_timezone']}")
+else:
+    # Initialize to None - JavaScript should detect and reload the page
+    st.session_state["browser_timezone"] = None
+    logger.warning("⚠️ Browser timezone not in query params, initializing to None. JavaScript should detect and reload.")
 
 # ----------------------------------------------------------------------
 # Helper Functions
@@ -412,14 +585,11 @@ def scan_historical_incident_reports(environment):
                 session_id = metadata.get("session_id", ir_file.stem.replace("_ir", ""))
                 generated_at = ir_data.get("generated_at", metadata.get("collected_at", ""))
             
-            # Extract date from generated_at or filename
+            # Extract date from generated_at or filename (convert to local/browser time)
             date_str = "Unknown"
+            display_tz = st.session_state.get("browser_timezone") or st.session_state.get("env_issue_timezone")
             if generated_at:
-                try:
-                    dt = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
-                    date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                except:
-                    pass
+                date_str = format_datetime_local(generated_at, include_timezone=True, user_timezone=display_tz)
             if date_str == "Unknown":
                 # Try to extract from filename
                 match = re.search(r'rca_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})', ir_file.name)
@@ -430,17 +600,9 @@ def scan_historical_incident_reports(environment):
             feedback = ir_data.get("feedback", {})
             trustworthy = feedback.get("trustworthy", False)
             
-            # Format issue_time for display
-            issue_time_str = "N/A"
-            if issue_time:
-                try:
-                    if isinstance(issue_time, str):
-                        dt = datetime.fromisoformat(issue_time.replace('Z', '+00:00'))
-                        issue_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    elif isinstance(issue_time, datetime):
-                        issue_time_str = issue_time.strftime("%Y-%m-%d %H:%M:%S")
-                except:
-                    issue_time_str = str(issue_time) if issue_time else "N/A"
+            # Format issue_time for display (convert UTC to local timezone)
+            display_tz = st.session_state.get("browser_timezone") or st.session_state.get("env_issue_timezone")
+            issue_time_str = format_datetime_local(issue_time, include_timezone=True, user_timezone=display_tz)
             
             historical_irs.append({
                 "date": date_str,  # Date when report was generated
@@ -483,28 +645,17 @@ def scan_historical_incident_reports(environment):
             
             # Extract date (report generation date)
             date_str = "Unknown"
+            browser_tz = st.session_state.get("browser_timezone")
             if collected_at:
-                try:
-                    dt = datetime.fromisoformat(collected_at.replace('Z', '+00:00'))
-                    date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                except:
-                    pass
+                date_str = format_datetime_local(collected_at, include_timezone=True, user_timezone=browser_tz)
             if date_str == "Unknown":
                 match = re.search(r'rca_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})', evidence_file.name)
                 if match:
                     date_str = f"{match.group(1)} {match.group(2).replace('-', ':')}"
             
-            # Format issue_time for display
-            issue_time_str = "N/A"
-            if issue_time:
-                try:
-                    if isinstance(issue_time, str):
-                        dt = datetime.fromisoformat(issue_time.replace('Z', '+00:00'))
-                        issue_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-                    elif isinstance(issue_time, datetime):
-                        issue_time_str = issue_time.strftime("%Y-%m-%d %H:%M:%S")
-                except:
-                    issue_time_str = str(issue_time) if issue_time else "N/A"
+            # Format issue_time for display (convert UTC to local timezone)
+            browser_tz = st.session_state.get("browser_timezone")
+            issue_time_str = format_datetime_local(issue_time, include_timezone=True, user_timezone=browser_tz)
             
             # Get trustworthy flag
             trustworthy = feedback.get("trustworthy", False)
@@ -903,9 +1054,10 @@ def load_evidence_file(file_path):
 # ----------------------------------------------------------------------
 # TABS - 5 Tab Structure with Colors
 # ----------------------------------------------------------------------
-# Add custom CSS for colored tabs
+# Add custom CSS for colored tabs and reduce spacing
 st.markdown("""
 <style>
+    /* Style the tabs with different colors */
     /* Style the tabs with different colors */
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
@@ -1033,11 +1185,14 @@ if should_switch_to_evidence:
     if st.session_state.get("active_main_tab") == "evidence":
         st.session_state["active_main_tab"] = None
 
-# Inject JavaScript to preserve Evidence tab selection after reruns
-# This script runs globally, outside of tab context, so it always executes
+# Inject JavaScript to preserve Evidence tab selection
+# Note: Browser timezone detection is handled earlier in the script
 st.markdown("""
 <script>
 (function() {
+    // Skip timezone detection here - it's handled in the early script
+    // Just focus on tab switching logic
+    
     function switchToEvidenceTab() {
         const tabButtons = document.querySelectorAll('.stTabs [data-baseweb="tab"]');
         if (tabButtons.length >= 3) {
@@ -1133,7 +1288,7 @@ elif not _preload_env:
     st.session_state["ir_history_cache"] = []
     st.session_state["ir_history_env"] = None
 
-tab_env, tab_evidence, tab_highlights, tab_llm_review, tab_incident_report, tab_rca, tab_ir_history = st.tabs(["🌐 Environment", "📊 Evidence", "🚨 Evidence Highlights", "🔍 Evidence Review", "🚨 Incident Report", "📄 Full RCA", "📜 IR History"])
+tab_env, tab_evidence, tab_analysis, tab_reports, tab_ir_history = st.tabs(["🌐 Environment", "📊 Evidence", "🔍 Evidence Analysis & Review", "📄 Incident Report & RCA", "📜 IR History"])
 
 # ======================================================================
 # TAB 1: ENVIRONMENT
@@ -1276,16 +1431,79 @@ with tab_env:
             st.markdown('<h3 style="font-size: 1.2rem; margin-top: 1rem;">🔍 Incident / Issue Details & Evidence Collection</h3>', unsafe_allow_html=True)
             
             # Pre-fill parameters from last collection (for convenience and re-run)
-            default_date = date.today()
-            default_time = datetime.now().time()
+            # Get browser timezone or fall back to system timezone
+            # IMPORTANT: Check query params FIRST (before calculating local_now) in case JS set it but session state not updated yet
+            browser_tz = st.session_state.get("browser_timezone")
+            browser_tz_just_detected = False
+            if not browser_tz:
+                # Fallback: check query params directly (in case JS set it but session state not updated yet)
+                if "browser_tz" in query_params:
+                    browser_tz = query_params["browser_tz"]
+                    st.session_state["browser_timezone"] = browser_tz
+                    browser_tz_just_detected = True  # Flag that we just detected browser timezone
+            
+            # Initialize timezone selector's session state BEFORE calculating default_time
+            # This ensures default_time uses the correct timezone (IST by default)
+            if "env_issue_timezone" not in st.session_state:
+                # Determine default timezone: browser_tz if available, else IST
+                if browser_tz:
+                    st.session_state["env_issue_timezone"] = browser_tz
+                    logger.info(f"Initializing timezone selector with browser timezone: {browser_tz}")
+                else:
+                    st.session_state["env_issue_timezone"] = "Asia/Kolkata"
+                    logger.info("Initializing timezone selector with default IST (Asia/Kolkata)")
+            
+            # Determine default timezone for calculating default_time
+            # Priority: 1) Timezone selector (now guaranteed to be set), 2) Browser timezone, 3) IST (Asia/Kolkata)
+            default_tz_for_time = st.session_state["env_issue_timezone"]
+            logger.info(f"Using timezone {default_tz_for_time} for default_time calculation")
+            
+            # Get current time in user's timezone
+            if default_tz_for_time and ZoneInfo:
+                try:
+                    user_tz = ZoneInfo(default_tz_for_time)
+                    local_now = datetime.now(timezone.utc).astimezone(user_tz)
+                    logger.info(f"Using timezone {default_tz_for_time} for default_time: {local_now}")
+                except Exception as e:
+                    # Invalid timezone, fall back to IST
+                    logger.warning(f"Invalid timezone {default_tz_for_time}: {e}. Falling back to IST.")
+                    try:
+                        user_tz = ZoneInfo("Asia/Kolkata")
+                        local_now = datetime.now(timezone.utc).astimezone(user_tz)
+                    except:
+                        local_now = datetime.now(timezone.utc)
+            else:
+                # ZoneInfo not available, use UTC
+                logger.warning("ZoneInfo not available. Using UTC for default_time.")
+                local_now = datetime.now(timezone.utc)
+            
+            default_date = local_now.date()
+            default_time = local_now.time()
             default_components = ["os"]
             default_observations = ""
             
             if "last_collection_params" in st.session_state:
                 params = st.session_state["last_collection_params"]
                 if isinstance(params.get("issue_time"), datetime):
-                    default_date = params["issue_time"].date()
-                    default_time = params["issue_time"].time()
+                    issue_time_param = params["issue_time"]
+                    # Convert to user's timezone if timezone-aware (e.g., UTC)
+                    if issue_time_param.tzinfo is not None:
+                        if browser_tz and ZoneInfo:
+                            try:
+                                user_tz = ZoneInfo(browser_tz)
+                                issue_time_param = issue_time_param.astimezone(user_tz)
+                            except Exception:
+                                issue_time_param = issue_time_param.astimezone()
+                        else:
+                            issue_time_param = issue_time_param.astimezone()
+                        default_date = issue_time_param.date()
+                        default_time = issue_time_param.time()
+                    # For naive datetimes, assume they might be UTC from old code
+                    # Use current local time instead to avoid confusion
+                    else:
+                        # Reset to current local time to ensure we use user's timezone
+                        default_date = local_now.date()
+                        default_time = local_now.time()
                 default_components = params.get("components", default_components)
                 default_observations = params.get("observations", default_observations)
             
@@ -1297,26 +1515,202 @@ with tab_env:
                 # Reset time input to default when rerun is triggered
                 if "env_issue_time" in st.session_state:
                     del st.session_state["env_issue_time"]
+                if "env_issue_time_tz_reset" in st.session_state:
+                    del st.session_state["env_issue_time_tz_reset"]
             
-            col1, col2 = st.columns(2)
-            with col1:
+            # Get timezone label from browser timezone or system timezone
+            # Check query params directly as fallback if session state not set yet
+            if not browser_tz:
+                # Fallback: check query params directly (in case JS set it but session state not updated yet)
+                if "browser_tz" in query_params:
+                    browser_tz = query_params["browser_tz"]
+                    st.session_state["browser_timezone"] = browser_tz
+            
+            if browser_tz:
+                # Use browser timezone name (e.g., "Asia/Kolkata")
+                # Try to get a short abbreviation
+                try:
+                    if ZoneInfo:
+                        user_tz = ZoneInfo(browser_tz)
+                        # Create a test datetime in user timezone to get proper abbreviation
+                        test_dt = datetime.now(timezone.utc).astimezone(user_tz)
+                        tz_name = test_dt.strftime("%Z")
+                        # If we got a proper abbreviation (not empty and not same as offset), use it
+                        if tz_name and tz_name != test_dt.strftime("%z"):
+                            tz_display = tz_name
+                        else:
+                            # Use a short version of the timezone name (e.g., "IST" from "Asia/Kolkata")
+                            # Try to map common timezones to abbreviations
+                            tz_abbrevs = {
+                                "Asia/Kolkata": "IST",
+                                "America/New_York": "EST/EDT",
+                                "America/Los_Angeles": "PST/PDT",
+                                "Europe/London": "GMT/BST",
+                                "Europe/Paris": "CET/CEST",
+                                "America/Chicago": "CST/CDT",
+                                "America/Denver": "MST/MDT",
+                                "Asia/Dubai": "GST",
+                                "Asia/Singapore": "SGT",
+                                "Asia/Tokyo": "JST",
+                                "Australia/Sydney": "AEDT/AEST",
+                            }
+                            tz_display = tz_abbrevs.get(browser_tz, browser_tz.split("/")[-1].replace("_", " "))
+                    else:
+                        tz_display = browser_tz.split("/")[-1].replace("_", " ") if "/" in browser_tz else browser_tz
+                except Exception:
+                    # Fallback to timezone name if conversion fails
+                    tz_abbrevs = {
+                        "Asia/Kolkata": "IST",
+                        "America/New_York": "EST/EDT",
+                        "America/Los_Angeles": "PST/PDT",
+                    }
+                    tz_display = tz_abbrevs.get(browser_tz, browser_tz.split("/")[-1].replace("_", " ") if "/" in browser_tz else browser_tz)
+            else:
+                # Fallback: show "Local" to indicate it's user's local time, even if we don't know the timezone
+                tz_display = "Local"
+            
+            # All fields in a single line: Components (60%), Date (15%), Time (10%), Timezone (15%)
+            col_components, col_date, col_time, col_tz = st.columns([60, 15, 10, 15])
+            
+            with col_components:
+                # Components selection (60% width)
+                components = st.multiselect(
+                    "Which components were affected?",
+                    ["tomcat", "nginx", "postgres", "os", "redis", "kafka", "mssql", "nodejs", "docker"],
+                    default=default_components,
+                    key="env_components"
+                )
+            
+            with col_date:
+                # Date (15% width)
                 date_val = st.date_input("Incident / Issue Date", default_date, key="env_issue_date")
-            with col2:
-                # Initialize session state for time input only once (unless rerun was triggered)
-                # This preserves user's selection across reruns
-                if "env_issue_time" not in st.session_state:
+            
+            with col_time:
+                # Time (10% width) - Using text input for better UX (no scrolling through dropdown)
+                # Force reset to local time if session state doesn't have timezone reset flag
+                # OR if browser timezone was just detected (needs timezone conversion)
+                if "env_issue_time_tz_reset" not in st.session_state or browser_tz_just_detected:
+                    # First time, after app restart, or browser timezone just detected - always use local time
                     st.session_state["env_issue_time"] = default_time
-                # Use the value from session state (which Streamlit updates automatically when user selects)
-                time_val = st.time_input("Incident / Issue Time", value=st.session_state["env_issue_time"], key="env_issue_time")
+                    # Initialize string format for text input
+                    st.session_state["env_issue_time_str"] = default_time.strftime("%H:%M")
+                    st.session_state["env_issue_time_tz_reset"] = True
+                
+                # Initialize time string in session state if not set
+                if "env_issue_time_str" not in st.session_state:
+                    current_time = st.session_state.get("env_issue_time", default_time)
+                    st.session_state["env_issue_time_str"] = current_time.strftime("%H:%M")
+                
+                # Text input for time (HH:MM format)
+                time_str = st.text_input(
+                    "Incident / Issue Time",
+                    value=st.session_state["env_issue_time_str"],
+                    key="env_issue_time_str",
+                    placeholder="HH:MM (e.g., 14:30)",
+                    help="Enter time in 24-hour format (HH:MM)"
+                )
+                
+                # Validate and parse time input
+                time_val = None
+                if time_str:
+                    try:
+                        # Parse HH:MM format
+                        hour, minute = map(int, time_str.split(":"))
+                        if 0 <= hour <= 23 and 0 <= minute <= 59:
+                            time_val = time(hour, minute)
+                            st.session_state["env_issue_time"] = time_val
+                        else:
+                            st.error(f"⚠️ Invalid time: Hours must be 0-23, Minutes must be 0-59")
+                            # Use previous valid time
+                            time_val = st.session_state.get("env_issue_time", default_time)
+                    except (ValueError, AttributeError):
+                        st.error(f"⚠️ Invalid time format. Please use HH:MM (e.g., 14:30)")
+                        # Use previous valid time
+                        time_val = st.session_state.get("env_issue_time", default_time)
+                else:
+                    # Empty input, use previous valid time
+                    time_val = st.session_state.get("env_issue_time", default_time)
+            
+            with col_tz:
+                # Timezone (15% width)
+                # Common timezones for easy selection
+                common_timezones = [
+                    "Asia/Kolkata",      # IST
+                    "Asia/Calcutta",     # IST (old name)
+                    "America/New_York",  # EST/EDT
+                    "America/Los_Angeles", # PST/PDT
+                    "Europe/London",     # GMT/BST
+                    "Europe/Paris",      # CET/CEST
+                    "America/Chicago",   # CST/CDT
+                    "Asia/Dubai",        # GST
+                    "Asia/Singapore",    # SGT
+                    "Asia/Tokyo",        # JST
+                    "UTC",               # UTC
+                ]
+                
+                # Determine default timezone: browser_tz if available, else IST
+                if browser_tz:
+                    default_tz = browser_tz
+                    # If browser_tz is in common list, use it; otherwise add it as first option
+                    if browser_tz not in common_timezones:
+                        common_timezones.insert(0, browser_tz)
+                else:
+                    # Default to IST if no browser timezone detected
+                    default_tz = "Asia/Kolkata"
+                
+                # Initialize timezone in session state if not set
+                if "env_issue_timezone" not in st.session_state:
+                    st.session_state["env_issue_timezone"] = default_tz
+                
+                # Ensure current timezone is in the list
+                current_tz = st.session_state["env_issue_timezone"]
+                if current_tz not in common_timezones:
+                    common_timezones.insert(0, current_tz)
+                
+                # Find index of current timezone
+                try:
+                    default_index = common_timezones.index(current_tz)
+                except ValueError:
+                    default_index = 0
+                
+                # Timezone input - use selectbox for common timezones
+                timezone_val = st.selectbox(
+                    "Timezone",
+                    options=common_timezones,
+                    index=default_index,
+                    key="env_issue_timezone",
+                    help="Select your timezone. The time you enter above will be converted to UTC for evidence collection."
+                )
             
             issue_time = datetime.combine(date_val, time_val)
             
-            components = st.multiselect(
-                "Which components were affected?",
-                ["tomcat", "nginx", "postgres", "os", "redis", "kafka", "mssql", "nodejs", "docker"],
-                default=default_components,
-                key="env_components"
-            )
+            # Convert to UTC using selected timezone (from timezone selector)
+            # This is more reliable than relying on browser timezone detection
+            user_timezone = st.session_state.get("env_issue_timezone", default_tz)
+            
+            if user_timezone and ZoneInfo:
+                try:
+                    user_tz = ZoneInfo(user_timezone)
+                    # Localize naive datetime to user's timezone
+                    # Note: zoneinfo.ZoneInfo uses replace(), not localize() like pytz
+                    issue_time_local = issue_time.replace(tzinfo=user_tz)
+                    # Convert to UTC
+                    issue_time_utc = issue_time_local.astimezone(timezone.utc)
+                    # Remove timezone info for backward compatibility (but it's now UTC)
+                    issue_time = issue_time_utc.replace(tzinfo=None)
+                    logger.info(f"Converted issue_time from {user_timezone} to UTC: {issue_time_local} -> {issue_time_utc}")
+                except Exception as e:
+                    # Fallback: assume UTC if conversion fails
+                    logger.warning(f"Failed to convert issue_time to UTC using timezone {user_timezone}: {e}. Assuming UTC.")
+                    # Show subtle warning to user if conversion fails
+                    st.caption(f"⚠️ Could not convert time to UTC using timezone {user_timezone}. Using time as-is (assumed UTC).")
+            else:
+                # No timezone selected or ZoneInfo not available - assume UTC
+                if not user_timezone:
+                    logger.warning("No timezone selected. Assuming UTC for issue_time.")
+                    st.caption("ℹ️ Timezone not selected. Time will be treated as UTC.")
+                else:
+                    logger.warning("ZoneInfo not available. Assuming UTC for issue_time.")
             
             observations = st.text_area("Your observations", height=100, value=default_observations, key="env_observations")
             
@@ -1330,11 +1724,14 @@ with tab_env:
                     with st.spinner("Collecting evidence from all hosts…"):
                         try:
                             orchestrator = SessionOrchestrator()
+                            # Get user timezone from selector (stored in session state)
+                            user_timezone = st.session_state.get("env_issue_timezone", default_tz)
                             evidence = orchestrator.run_non_interactive(
                                 issue_time=issue_time,
                                 components=components,
                                 observations=observations,
-                                environment=env
+                                environment=env,
+                                user_timezone=user_timezone  # Pass user timezone to orchestrator
                             )
                             
                             evidence_file = evidence["evidence_file"]
@@ -1467,44 +1864,41 @@ with tab_evidence:
         time_window = summary.get("time_window")
         
         # Format date from collected_at or session_id
+        browser_tz = st.session_state.get("browser_timezone")
         date_str = "N/A"
         collected_at = metadata.get("collected_at")
         if collected_at:
-            try:
-                # Parse ISO format datetime and extract date
-                dt = datetime.fromisoformat(collected_at.replace('Z', '+00:00'))
-                date_str = dt.strftime("%Y-%m-%d")
-            except:
+            date_str = format_datetime_short(collected_at, user_timezone=browser_tz)
+            if date_str == "N/A":
                 # Fallback: try to extract from session_id if available
                 session_id = metadata.get("session_id", "")
                 if session_id and "_" in session_id:
                     date_str = session_id.split("_")[1] if len(session_id.split("_")) > 1 else "N/A"
+        else:
+            # Fallback: try to extract from session_id if available
+            session_id = metadata.get("session_id", "")
+            if session_id and "_" in session_id:
+                date_str = session_id.split("_")[1] if len(session_id.split("_")) > 1 else "N/A"
         
-        # Format time range from time_window
+        # Format time range from time_window (convert UTC to local timezone)
         time_range_str = ""
         if time_window and isinstance(time_window, dict):
             since = time_window.get("since", "")
             until = time_window.get("until", "")
             if since and until:
-                # Format times (they might be in ISO format, try to extract just the time part)
-                try:
-                    # Try to parse and format
-                    since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
-                    until_dt = datetime.fromisoformat(until.replace('Z', '+00:00'))
-                    since_time = since_dt.strftime("%H:%M:%S")
-                    until_time = until_dt.strftime("%H:%M:%S")
+                # Format times in browser timezone
+                since_time = format_time_only(since, user_timezone=browser_tz)
+                until_time = format_time_only(until, user_timezone=browser_tz)
+                if since_time != "N/A" and until_time != "N/A":
                     time_range_str = f" | from: {since_time} | to: {until_time}"
-                except:
+                else:
                     # If parsing fails, use raw values
                     time_range_str = f" | from: {since} | to: {until}"
         elif collected_at:
             # Fallback: use collected_at as a single time point
-            try:
-                dt = datetime.fromisoformat(collected_at.replace('Z', '+00:00'))
-                time_str = dt.strftime("%H:%M:%S")
+            time_str = format_time_only(collected_at, user_timezone=browser_tz)
+            if time_str != "N/A":
                 time_range_str = f" | collected: {time_str}"
-            except:
-                pass
         
         browser_title = f"📊 Evidence Browser - {date_str}{time_range_str}"
         st.markdown(f'<h3 style="font-size: 1.2rem; margin-top: 1rem;">{browser_title}</h3>', unsafe_allow_html=True)
@@ -1541,6 +1935,10 @@ with tab_evidence:
         if st.session_state.get("evidence_file") != selected_file_path:
             st.session_state["evidence_file"] = selected_file_path
             st.session_state["evidence_data"] = None  # Force reload
+            # Clear IR/RCA so we don't show another evidence's reports; will load from file if exists for this evidence
+            for key in ("ir_text", "rca_text", "ir_evidence_file", "rca_evidence_file", "rca_tasks"):
+                if key in st.session_state:
+                    del st.session_state[key]
             st.rerun()
         
         evidence_file = st.session_state["evidence_file"]
@@ -1922,9 +2320,12 @@ with tab_evidence:
                     show_log = st.checkbox(f"Show {log_name} content", key=log_show_key, value=False)
                     
                     if show_log:
+                        browser_tz = st.session_state.get("browser_timezone")
                         if formatted_log.get("time_window"):
                             tw = formatted_log["time_window"]
-                            st.caption(f"Time Window: {tw.get('since')} to {tw.get('until')}")
+                            since_display = format_datetime_local(tw.get('since'), include_timezone=True, user_timezone=browser_tz) if tw.get('since') else 'N/A'
+                            until_display = format_datetime_local(tw.get('until'), include_timezone=True, user_timezone=browser_tz) if tw.get('until') else 'N/A'
+                            st.caption(f"Time Window: {since_display} to {until_display}")
                         
                         log_content = formatted_log.get("content", "")
                         if log_content:
@@ -2509,27 +2910,32 @@ with tab_evidence:
                 st.text(f"Session ID: {metadata.get('session_id', 'N/A')}")
                 st.text(f"Version: {metadata.get('collector_version', 'N/A')}")
                 st.text(f"Build: {metadata.get('collector_build', 'N/A')}")
+                browser_tz = st.session_state.get("browser_timezone")
                 if metadata.get("issue_time"):
-                    st.text(f"Issue Time: {metadata.get('issue_time')}")
+                    issue_time_display = format_datetime_local(metadata.get('issue_time'), include_timezone=True, user_timezone=browser_tz)
+                    st.text(f"Issue Time: {issue_time_display}")
             with col2:
                 st.text(f"Environment: {metadata.get('environment', 'N/A')}")
-                st.text(f"Collected: {metadata.get('collected_at', 'N/A')}")
-                st.text(f"Saved: {metadata.get('saved_at', 'N/A')}")
+                browser_tz = st.session_state.get("browser_timezone")
+                collected_at_display = format_datetime_local(metadata.get('collected_at'), include_timezone=True, user_timezone=browser_tz) if metadata.get('collected_at') else 'N/A'
+                st.text(f"Collected: {collected_at_display}")
+                saved_at_display = format_datetime_local(metadata.get('saved_at'), include_timezone=True, user_timezone=browser_tz) if metadata.get('saved_at') else 'N/A'
+                st.text(f"Saved: {saved_at_display}")
                 if metadata.get("observations"):
                     st.text(f"Observations: {metadata.get('observations')}")
 
 
 # ======================================================================
-# TAB 3: EVIDENCE HIGHLIGHTS (Auto-detected Issues Dashboard)
+# TAB 3: EVIDENCE ANALYSIS (Highlights + Review)
 # ======================================================================
-with tab_highlights:
+with tab_analysis:
     # Tab description
-    st.info("💡 *Auto-detected issues and concerns from evidence collection. This dashboard helps you quickly identify and prioritize critical problems before diving into detailed evidence.*")
+    st.info("💡 *Analyze evidence: Auto-detected issues and prepare evidence for LLM analysis. Review concerns, configure security settings, and prepare data for report generation.*")
     
     # Check if evidence file exists
     if not st.session_state["evidence_file"]:
         st.warning("⚠️ No evidence file loaded. Please collect evidence from the **Environment** tab first.")
-        st.info("💡 After collecting evidence, auto-detected issues will appear here.")
+        st.info("💡 After collecting evidence, auto-detected issues and review options will appear here.")
         st.stop()
     
     evidence_file = st.session_state["evidence_file"]
@@ -2539,6 +2945,10 @@ with tab_highlights:
     if evidence_data is None:
         st.error("⚠️ Failed to load evidence data. Please try collecting evidence again.")
         st.stop()
+    
+    # Section 1: Evidence Highlights (Top)
+    st.markdown('<h2 style="font-size: 1.5rem; margin-top: 1rem;">🚨 Evidence Highlights</h2>', unsafe_allow_html=True)
+    st.caption("Auto-detected issues and concerns from evidence collection")
     
     # Handle navigation from concern items
     nav_target = st.session_state.get("nav_to_evidence")
@@ -2549,44 +2959,39 @@ with tab_highlights:
     
     # Render the highlights dashboard
     render_evidence_highlights(evidence_data)
-
-
-# ======================================================================
-# TAB 4: LLM INPUT REVIEW (Transparency & Security) 
-# ======================================================================
-with tab_llm_review:
-    # Tab description
-    st.info("💡 *Transparency and security review before sending to LLM. Review what data will be sent, check token counts, and verify evidence reduction.*")
     
-    # Check if evidence file exists
-    if not st.session_state["evidence_file"]:
-        st.warning("⚠️ No evidence file loaded. Please collect evidence from the **Environment** tab first.")
-        st.info("💡 After collecting evidence, you can review what will be sent to the LLM here.")
-        st.stop()
+    st.divider()
     
-    evidence_file = st.session_state["evidence_file"]
-    evidence_data = load_evidence_file(evidence_file)
-    
-    # Validate evidence data was loaded
-    if evidence_data is None:
-        st.error("⚠️ Failed to load evidence data. Please try collecting evidence again.")
-        st.stop()
+    # Section 2: Evidence Review (Bottom)
+    st.markdown('<h2 style="font-size: 1.5rem; margin-top: 1rem;">🔒 Evidence Review</h2>', unsafe_allow_html=True)
+    st.caption("Review and prepare evidence for LLM analysis")
     
     # Render the Evidence Review component
     prepared_evidence, review_metadata = render_llm_input_review(evidence_data)
     
-    # Store prepared evidence in session state for use by RCA generation
+    # Store prepared evidence in session state for use by report generation
     if prepared_evidence:
         st.session_state["prepared_evidence_for_llm"] = prepared_evidence
         st.session_state["llm_review_metadata"] = review_metadata
 
 
 # ======================================================================
-# TAB 5: INCIDENT REPORT (Quick Actionable Report)
+# TAB 4: REPORTS (Incident Report + Full RCA)
 # ======================================================================
-with tab_incident_report:
-    # Tab description
-    st.info("💡 *Quick, actionable report for immediate incident response. Generate a focused report with immediate actions and what's broken.*")
+with tab_reports:
+    # Smaller, consistent section headers (20% reduction) - CSS for report content headings
+    st.markdown("""
+        <style>
+            /* Section headers in Incident Report & RCA tab - 20% smaller, consistent */
+            .report-section-h4 { font-size: 0.96rem !important; margin-top: 0.5rem !important; margin-bottom: 0.25rem !important; font-weight: 600; }
+            /* Default expanders (e.g. Evidence Selection) - no underline */
+            [data-testid="stExpander"] summary { font-size: 1rem !important; font-weight: 600 !important; }
+            /* INCIDENT REPORT / ROOT CAUSE ANALYSIS only - 100% larger, underlined (wrap in .report-heading-expander) */
+            .report-heading-expander [data-testid="stExpander"] summary { font-size: 4.4rem !important; font-weight: 600 !important; text-decoration: underline !important; }
+            /* Model label aligned with dropdown (same row height as selectbox) */
+            .model-label-cell { display: flex; align-items: center; min-height: 38px; padding-right: 0.25rem; white-space: nowrap; }
+        </style>
+    """, unsafe_allow_html=True)
     
     if not st.session_state["evidence_file"]:
         st.warning("⚠️ No evidence file available. Please collect evidence from the **Environment** tab first.")
@@ -2596,79 +3001,95 @@ with tab_incident_report:
     evidence_file = st.session_state["evidence_file"]
     evidence_data = load_evidence_file(evidence_file)
     
-    # Validate evidence data was loaded
     if evidence_data is None:
         st.error("⚠️ Failed to load evidence data. Please try collecting evidence again.")
         st.stop()
     
-    # A. Evidence Selection (Collapsible)
-    with st.expander("📄 Evidence Selection", expanded=False):
-        if "metadata" in evidence_data:
-            metadata = evidence_data["metadata"]
-            # Create a table for evidence selection without column headers
-            evidence_table_data = []
-            evidence_table_data.append({"Field": "Session ID", "Value": metadata.get('session_id', 'N/A')})
-            evidence_table_data.append({"Field": "Environment", "Value": metadata.get('environment', 'N/A')})
-            if metadata.get("issue_time"):
-                evidence_table_data.append({"Field": "Issue Time", "Value": metadata.get('issue_time')})
-            evidence_table_data.append({"Field": "File", "Value": Path(evidence_file).name})
-            evidence_table_data.append({"Field": "Collected", "Value": metadata.get('collected_at', 'N/A')})
-            if metadata.get("observations"):
-                evidence_table_data.append({"Field": "Observations", "Value": metadata.get('observations')})
-            
-            # Display as dataframe with hidden column headers and row index
-            df = pd.DataFrame(evidence_table_data)
-            st.dataframe(
-                df,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Field": st.column_config.TextColumn("", width="medium"),
-                    "Value": st.column_config.TextColumn("", width="large")
-                }
-            )
-    
-    # B. Model Selection
-    model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o", "gpt-4.1"], 
-                         index=["gpt-4o-mini", "gpt-4o", "gpt-4.1"].index(st.session_state["selected_model"]) if st.session_state["selected_model"] in ["gpt-4o-mini", "gpt-4o", "gpt-4.1"] else 0,
-                         key="model_select_ir")
-    st.session_state["selected_model"] = model
-    
-    # B.1. Service Configuration Status
+    # Single box at top: tab description + prepared evidence status + Mode/API
     config_status = get_service_config_status()
-    status_col1, status_col2 = st.columns(2)
-    with status_col1:
-        mode_icon = "🌐" if config_status["mode"] == "Remote" else "💻"
-        st.caption(f"{mode_icon} **Mode:** {config_status['mode']}")
-    with status_col2:
-        api_icon = "✅" if config_status["api_key_configured"] else "❌"
-        api_status = "Configured" if config_status["api_key_configured"] else "Not Configured"
-        st.caption(f"{api_icon} **API Key:** {api_status}")
-    
-    # C. Report Generation
-    # Check if prepared evidence is available from Evidence Review
     prepared_evidence = st.session_state.get("prepared_evidence_for_llm")
-    if prepared_evidence:
-        review_metadata = st.session_state.get("llm_review_metadata", {})
-        mask_enabled = review_metadata.get("mask_enabled", False)
-        filter_enabled = review_metadata.get("filter_enabled", False)
-        
-        # Create columns to place button next to info message
-        info_col, btn_col = st.columns([3, 1])
-        with info_col:
-            st.info(f"💡 **Prepared evidence available** from Evidence Review tab. "
-                    f"Masking: {'✅ Enabled' if mask_enabled else '❌ Disabled'}, "
-                    f"Filtering: {'✅ Enabled' if filter_enabled else '❌ Disabled'}. "
-                    f"This will be used for report generation.")
-        with btn_col:
-            generate_ir_btn = st.button("🚨 Generate Incident Report", type="primary", use_container_width=True,
-                                        help="Generate a quick, actionable report for immediate incident response.",
-                                        key="btn_generate_ir")
-    else:
-        # No prepared evidence, button spans full width
-        generate_ir_btn = st.button("🚨 Generate Incident Report", type="primary", use_container_width=True,
-                                    help="Generate a quick, actionable report for immediate incident response.",
-                                    key="btn_generate_ir_no_prep")
+    review_metadata = st.session_state.get("llm_review_metadata", {}) if prepared_evidence else {}
+    mask_enabled = review_metadata.get("mask_enabled", False)
+    filter_enabled = review_metadata.get("filter_enabled", False)
+    mode_icon = "🌐" if config_status["mode"] == "Remote" else "💻"
+    api_icon = "✅" if config_status["api_key_configured"] else "❌"
+    api_status = "Configured" if config_status["api_key_configured"] else "Not Configured"
+    line1 = "💡 Generate reports: Incident report & comprehensive RCA."
+    line2 = (
+        f"💡 Masking: {'✅ Enabled' if mask_enabled else '❌ Disabled'}   |   "
+        f"Filtering: {'✅ Enabled' if filter_enabled else '❌ Disabled'}   |   "
+        "These will be used for report generation."
+    ) if prepared_evidence else "💡 No prepared evidence. Raw evidence will be used for report generation."
+    line3 = f"{mode_icon} Mode: {config_status['mode']}  |  {api_icon} API Key: {api_status}"
+    # One box: line1, then line2 and line3 on same row (line3 right-aligned)
+    st.markdown(
+        f'<div style="background-color: rgb(240, 249, 255); border: 1px solid rgb(204, 229, 255); border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">'
+        f'<p style="margin: 0 0 0.5rem 0;">{line1}</p>'
+        f'<div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">'
+        f'<span style="flex: 1; min-width: 0;">{line2}</span>'
+        f'<span style="white-space: nowrap; flex-shrink: 0;">{line3}</span>'
+        f'</div></div>',
+        unsafe_allow_html=True
+    )
+    
+    # Single control row: Evidence Selection + Model + Generate IR only (Generate RCA is next to Feedback Summary below)
+    has_ir = (
+        evidence_file is not None
+        and st.session_state.get("ir_evidence_file") == evidence_file
+        and st.session_state.get("ir_text")
+    )
+    ev_col1, ev_col2, ev_col3 = st.columns([2, 1, 1])  # 50%, 25%, 25%
+    
+    with ev_col1:
+        with st.expander("📄 Evidence Selection", expanded=False):
+            if "metadata" in evidence_data:
+                metadata = evidence_data["metadata"]
+                evidence_table_data = []
+                evidence_table_data.append({"Field": "Session ID", "Value": metadata.get('session_id', 'N/A')})
+                evidence_table_data.append({"Field": "Environment", "Value": metadata.get('environment', 'N/A')})
+                browser_tz = st.session_state.get("browser_timezone")
+                if metadata.get("issue_time"):
+                    issue_time_display = format_datetime_local(metadata.get('issue_time'), include_timezone=True, user_timezone=browser_tz)
+                    evidence_table_data.append({"Field": "Issue Time", "Value": issue_time_display})
+                evidence_table_data.append({"Field": "File", "Value": Path(evidence_file).name})
+                collected_at_display = format_datetime_local(metadata.get('collected_at'), include_timezone=True, user_timezone=browser_tz) if metadata.get('collected_at') else 'N/A'
+                evidence_table_data.append({"Field": "Collected", "Value": collected_at_display})
+                if metadata.get("observations"):
+                    evidence_table_data.append({"Field": "Observations", "Value": metadata.get('observations')})
+                df = pd.DataFrame(evidence_table_data)
+                st.dataframe(
+                    df,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "Field": st.column_config.TextColumn("", width="medium"),
+                        "Value": st.column_config.TextColumn("", width="large")
+                    }
+                )
+    
+    with ev_col2:
+        # Model and dropdown on one line, vertically aligned
+        model_lab, model_dd = st.columns([1, 6])
+        with model_lab:
+            st.markdown('<div class="model-label-cell">Model:</div>', unsafe_allow_html=True)
+        with model_dd:
+            model = st.selectbox(
+                "Model",
+                ["gpt-4o-mini", "gpt-4o", "gpt-4.1"],
+                index=["gpt-4o-mini", "gpt-4o", "gpt-4.1"].index(st.session_state["selected_model"]) if st.session_state["selected_model"] in ["gpt-4o-mini", "gpt-4o", "gpt-4.1"] else 0,
+                key="model_select_reports",
+                label_visibility="collapsed"
+            )
+        st.session_state["selected_model"] = model
+    
+    with ev_col3:
+        generate_ir_btn = st.button(
+            "🚨 Generate Incident Report",
+            type="primary",
+            use_container_width=True,
+            help="Generate a quick, actionable report for immediate incident response.",
+            key="btn_generate_ir"
+        )
     
     if generate_ir_btn:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -2715,14 +3136,18 @@ with tab_incident_report:
                 ir_text = reasoner.generate_incident_response_report(evidence_file, progress_callback=progress_tracker.callback)
                 
             st.session_state["ir_text"] = ir_text
+            st.session_state["ir_evidence_file"] = evidence_file  # tie IR to this evidence
             
             # Clear status container and show success
             status_container.empty()
             
             # Save IR to file
+            ir_generated_at = datetime.now(timezone.utc).isoformat()
             if _save_ir_to_file(evidence_file, ir_text):
+                st.session_state["ir_generated_at"] = ir_generated_at
                 st.success("✅ Incident Report generated and saved successfully!")
             else:
+                st.session_state["ir_generated_at"] = ir_generated_at
                 st.success("✅ Incident Report generated successfully!")
                 st.warning("⚠️ Report generated but failed to save to file.")
             
@@ -2734,8 +3159,32 @@ with tab_incident_report:
             # Don't show full exception traceback to users - error message is already user-friendly
             st.stop()
     
-    # C. Report Display
-    has_ir = "ir_text" in st.session_state
+    # C. Report Display - only show IR that belongs to the currently selected evidence
+    evidence_file = st.session_state["evidence_file"]
+    has_ir = False
+    if evidence_file:
+        # Session IR is only valid if it's for this evidence
+        if st.session_state.get("ir_evidence_file") == evidence_file and st.session_state.get("ir_text"):
+            has_ir = True
+        else:
+            # Clear stale IR from another evidence
+            for key in ("ir_text", "ir_evidence_file", "ir_generated_at"):
+                if key in st.session_state:
+                    del st.session_state[key]
+            # Try load from file for this evidence
+            evidence_path = Path(evidence_file)
+            ir_file = evidence_path.parent / f"{evidence_path.stem}_ir.json"
+            if ir_file.exists():
+                try:
+                    with open(ir_file, 'r', encoding='utf-8') as f:
+                        ir_data = json.load(f)
+                        if ir_data.get("report_text"):
+                            st.session_state["ir_text"] = ir_data["report_text"]
+                            st.session_state["ir_evidence_file"] = evidence_file
+                            st.session_state["ir_generated_at"] = ir_data.get("generated_at")
+                            has_ir = True
+                except Exception:
+                    pass
     
     if has_ir:
         ir_text = st.session_state["ir_text"]
@@ -2770,6 +3219,7 @@ with tab_incident_report:
                     headings = [
                         "IMMEDIATE ACTIONS (Next 15–30 minutes)",
                         "IMMEDIATE ACTIONS (next 15–30 minutes)",
+                        "IMMEDIATE ACTIONS / COMPONENT-LEVEL ACTIONS",
                         "MISSING DATA / FOLLOW-UP REQUESTS",
                         "COMPONENT-LEVEL ACTIONS",
                         "SUMMARY OF ISSUES IDENTIFIED",
@@ -2784,11 +3234,12 @@ with tab_incident_report:
                         title_case = heading.title()
                         
                         # Only match headings at start of line (not inside tables or other content)
+                        # Use ##### (h5) for 20% smaller, consistent with section headers
                         patterns = [
                             # Match at start of line with optional number prefix (case-insensitive)
-                            (rf'^(#{{1,3}})\s*\d+\.\s*{re.escape(heading)}\s*$', r'#### ' + title_case, re.IGNORECASE),
+                            (rf'^(#{{1,3}})\s*\d+\.\s*{re.escape(heading)}\s*$', r'##### ' + title_case, re.IGNORECASE),
                             # Match at start of line without number (case-insensitive)
-                            (rf'^(#{{1,3}})\s*{re.escape(heading)}\s*$', r'#### ' + title_case, re.IGNORECASE),
+                            (rf'^(#{{1,3}})\s*{re.escape(heading)}\s*$', r'##### ' + title_case, re.IGNORECASE),
                         ]
                         
                         for pattern, replacement, flags in patterns:
@@ -2810,54 +3261,90 @@ with tab_incident_report:
         # Process the IR text
         processed_ir_text = process_ir_headings(ir_text)
         
-        # Render as plain markdown to avoid React errors
-        # Skip format_incident_response_report which uses HTML
-        st.markdown(processed_ir_text)
-        
+        # Collapsible INCIDENT REPORT section (heading + date/time + report body)
+        st.markdown('<div class="report-heading-expander">', unsafe_allow_html=True)
+        with st.expander("INCIDENT REPORT", expanded=True):
+            # Show report generated date/time when available (convert UTC to local/browser time)
+            ir_generated_at = st.session_state.get("ir_generated_at")
+            if ir_generated_at:
+                # Prefer browser timezone, fall back to Environment tab timezone selector
+                display_tz = st.session_state.get("browser_timezone") or st.session_state.get("env_issue_timezone")
+                ir_generated_str = format_datetime_local(ir_generated_at, include_timezone=True, user_timezone=display_tz)
+                st.caption(f"**Report generated:** {ir_generated_str}")
+            # Render as plain markdown to avoid React errors
+            st.markdown(processed_ir_text)
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # D. Feedback Section
-        st.markdown('### 📝 Feedback')
-        st.caption("Help us improve by providing feedback on the accuracy and usefulness of this report.")
+        st.caption("📝 **Feedback** - Help us improve by providing feedback on the accuracy and usefulness of this report.")
         
         # Load existing feedback if available
         existing_feedback = get_feedback_from_json(evidence_file)
         
         with st.form("incident_report_feedback"):
-            col1, col2, col3 = st.columns(3)
+            # 20% | 20% | 20% | 30% | 10%
+            fb_col1, fb_col2, fb_col3, fb_col4, fb_col5 = st.columns([2, 2, 2, 3, 1])
             
-            with col1:
-                accuracy_rating = st.slider(
-                    "Accuracy Rating",
-                    min_value=1,
-                    max_value=5,
-                    value=existing_feedback.get("accuracy_rating", 3) if existing_feedback else 3,
-                    help="Rate how accurate this analysis was (1=Very Inaccurate, 5=Very Accurate)"
-                )
+            with fb_col1:
+                # Label, gap, slider (broader), spacer (gap prevents label/slider overlap)
+                fb1_lab, fb1_gap, fb1_sl, fb1_spacer = st.columns([1, 1, 2, 1])
+                with fb1_lab:
+                    st.markdown('<div class="model-label-cell">Accuracy Rating</div>', unsafe_allow_html=True)
+                with fb1_gap:
+                    pass  # small gap between label and slider
+                with fb1_sl:
+                    accuracy_rating = st.slider(
+                        "Accuracy Rating",
+                        min_value=1,
+                        max_value=5,
+                        value=existing_feedback.get("accuracy_rating", 3) if existing_feedback else 3,
+                        help="Rate how accurate this analysis was (1=Very Inaccurate, 5=Very Accurate)",
+                        label_visibility="collapsed"
+                    )
             
-            with col2:
-                was_helpful = st.radio(
-                    "Was this helpful?",
-                    ["Yes", "No"],
-                    index=0 if (existing_feedback and existing_feedback.get("was_helpful", True)) or not existing_feedback else 1,
-                    horizontal=True
-                )
+            with fb_col2:
+                # Label left, radio right (together 20%)
+                fb2_lab, fb2_rad = st.columns([1, 2])
+                with fb2_lab:
+                    st.markdown('<div class="model-label-cell">Was this helpful?</div>', unsafe_allow_html=True)
+                with fb2_rad:
+                    was_helpful = st.radio(
+                        "Was this helpful?",
+                        ["Yes", "No"],
+                        index=0 if (existing_feedback and existing_feedback.get("was_helpful", True)) or not existing_feedback else 1,
+                        horizontal=True,
+                        label_visibility="collapsed"
+                    )
             
-            with col3:
-                actionable = st.radio(
-                    "Were recommendations actionable?",
-                    ["Yes", "No"],
-                    index=0 if (existing_feedback and existing_feedback.get("actionable", True)) or not existing_feedback else 1,
-                    horizontal=True
-                )
+            with fb_col3:
+                # Label left, radio right (together 20%)
+                fb3_lab, fb3_rad = st.columns([1, 2])
+                with fb3_lab:
+                    st.markdown('<div class="model-label-cell">Actionable?</div>', unsafe_allow_html=True)
+                with fb3_rad:
+                    actionable = st.radio(
+                        "Actionable?",
+                        ["Yes", "No"],
+                        index=0 if (existing_feedback and existing_feedback.get("actionable", True)) or not existing_feedback else 1,
+                        horizontal=True,
+                        label_visibility="collapsed"
+                    )
             
-            comments = st.text_area(
-                "Comments / Notes",
-                value=existing_feedback.get("comments", "") if existing_feedback else "",
-                help="Optional: Provide additional feedback or notes about the report",
-                height=100
-            )
+            with fb_col4:
+                # Label left, single-line text input right (together 30%)
+                fb4_lab, fb4_txt = st.columns([1, 3])
+                with fb4_lab:
+                    st.markdown('<div class="model-label-cell">Comments / Notes</div>', unsafe_allow_html=True)
+                with fb4_txt:
+                    comments = st.text_input(
+                        "Comments / Notes",
+                        value=existing_feedback.get("comments", "") if existing_feedback else "",
+                        help="Optional: Provide additional feedback or notes about the report",
+                        label_visibility="collapsed"
+                    )
             
-            submit_feedback = st.form_submit_button("💾 Save Feedback", type="primary", use_container_width=True)
+            with fb_col5:
+                submit_feedback = st.form_submit_button("💾 Save Feedback", type="primary", use_container_width=True)
             
             if submit_feedback:
                 feedback_data = {
@@ -2880,382 +3367,288 @@ with tab_incident_report:
                     st.rerun()
                 else:
                     st.error("❌ Failed to save feedback. Please try again.")
+    
+    # Section 2: Full RCA (Bottom) - Only show after IR is completed
+    # Only consider IR valid if it belongs to current evidence (set above in C. Report Display)
+    evidence_file_rca = st.session_state.get("evidence_file")
+    has_ir = (
+        evidence_file_rca is not None
+        and st.session_state.get("ir_evidence_file") == evidence_file_rca
+        and st.session_state.get("ir_text")
+    )
+    
+    if not has_ir:
+        st.info("💡 **Complete the Incident Report above first.** Once the Incident Report is generated, the Full RCA section will appear here.")
+    else:
+        # Full RCA Section
+        if not st.session_state["evidence_file"]:
+            st.warning("⚠️ No evidence file available. Please collect evidence from the **Environment** tab first.")
+            st.stop()
         
+        evidence_file = st.session_state["evidence_file"]
+        evidence_data = load_evidence_file(evidence_file)
         
-        # Show feedback summary if available (after form)
-        if existing_feedback:
-            st.info(f"📊 **Saved Feedback:** Accuracy: {existing_feedback.get('accuracy_rating', 'N/A')}/5 | "
-                   f"Helpful: {'✅' if existing_feedback.get('was_helpful') else '❌'} | "
-                   f"Actionable: {'✅' if existing_feedback.get('actionable') else '❌'}")
-            if existing_feedback.get("comments"):
-                st.caption(f"💬 Comments: {existing_feedback.get('comments')}")
+        if evidence_data is None:
+            st.error("⚠️ Failed to load evidence data. Please try collecting evidence again.")
+            st.stop()
         
+        prepared_evidence = st.session_state.get("prepared_evidence_for_llm")
         
-        # E. Downloads
-        st.subheader("💾 Downloads")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                "Download IR Report (TXT)",
-                data=ir_text,
-                file_name=f"ir_report_{Path(evidence_file).stem}.txt",
-                mime="text/plain",
-                key="dl_ir_report_txt"
-            )
-        with col2:
-            evidence_json = json.dumps(evidence_data, indent=2)
-            st.download_button(
-                "Download Evidence (JSON)",
-                data=evidence_json,
-                file_name=f"evidence_{Path(evidence_file).stem}.json",
-                mime="application/json",
-                key="dl_ir_evidence_json"
-            )
-
-
-# ======================================================================
-# TAB 6: FULL RCA (Complete Root Cause Analysis)
-# ======================================================================
-with tab_rca:
-    # Tab description
-    st.info("💡 *Complete root cause analysis report. Generate a comprehensive RCA with detailed analysis, component summaries, and long-term preventive actions.*")
-    
-    st.markdown('### 🤖 Generate RCA Report')
-    
-    if not st.session_state["evidence_file"]:
-        st.warning("⚠️ No evidence file available. Please collect evidence from the **Environment** tab first.")
-        st.stop()
-    
-    evidence_file = st.session_state["evidence_file"]
-    evidence_data = load_evidence_file(evidence_file)
-    
-    # Validate evidence data was loaded
-    if evidence_data is None:
-        st.error("⚠️ Failed to load evidence data. Please try collecting evidence again.")
-        st.stop()
-    
-    # A. Evidence Selection (Collapsible)
-    with st.expander("📄 Evidence Selection", expanded=False):
-        if "metadata" in evidence_data:
-            metadata = evidence_data["metadata"]
-            # Create a table for evidence selection without column headers
-            evidence_table_data = []
-            evidence_table_data.append({"Field": "Session ID", "Value": metadata.get('session_id', 'N/A')})
-            evidence_table_data.append({"Field": "Environment", "Value": metadata.get('environment', 'N/A')})
-            if metadata.get("issue_time"):
-                evidence_table_data.append({"Field": "Issue Time", "Value": metadata.get('issue_time')})
-            evidence_table_data.append({"Field": "File", "Value": Path(evidence_file).name})
-            evidence_table_data.append({"Field": "Collected", "Value": metadata.get('collected_at', 'N/A')})
-            if metadata.get("observations"):
-                evidence_table_data.append({"Field": "Observations", "Value": metadata.get('observations')})
-            
-            # Display as dataframe with hidden column headers and row index
-            df = pd.DataFrame(evidence_table_data)
-            st.dataframe(
-                df,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Field": st.column_config.TextColumn("", width="medium"),
-                    "Value": st.column_config.TextColumn("", width="large")
-                }
-            )
-    
-    # B. Model Selection
-    model = st.selectbox("Model", ["gpt-4o-mini", "gpt-4o", "gpt-4.1"], 
-                         index=["gpt-4o-mini", "gpt-4o", "gpt-4.1"].index(st.session_state["selected_model"]) if st.session_state["selected_model"] in ["gpt-4o-mini", "gpt-4o", "gpt-4.1"] else 0,
-                         key="model_select_rca")
-    st.session_state["selected_model"] = model
-    
-    # B.1. Service Configuration Status
-    config_status = get_service_config_status()
-    status_col1, status_col2 = st.columns(2)
-    with status_col1:
-        mode_icon = "🌐" if config_status["mode"] == "Remote" else "💻"
-        st.caption(f"{mode_icon} **Mode:** {config_status['mode']}")
-    with status_col2:
-        api_icon = "✅" if config_status["api_key_configured"] else "❌"
-        api_status = "Configured" if config_status["api_key_configured"] else "Not Configured"
-        st.caption(f"{api_icon} **API Key:** {api_status}")
-    
-    # C. RCA Generation Panel
-    # Check for feedback from Incident Report
-    feedback = get_feedback_from_json(evidence_file)
-    feedback_warning = None
-    feedback_info = None
-    confirm_generate_key = "confirm_rca_with_negative_feedback"
-    confirm_no_feedback_key = "confirm_rca_no_feedback"
-    
-    if not feedback:
-        # No feedback provided - evidence is considered unreliable by default
-        feedback_warning = (
-            "⚠️ **No Feedback Provided:** Incident Report feedback has not been saved.\n\n"
-            "**Evidence Reliability:** ⚠️ Unreliable (no validation)\n\n"
-            "**Recommendation:** Please review the Incident Report in the **Incident Report** tab "
-            "and provide feedback before generating RCA. This ensures the evidence quality is validated."
-        )
-        confirm_generate = st.checkbox(
-            "I understand the evidence is unvalidated and want to generate RCA anyway",
-            key=confirm_no_feedback_key
-        )
-    elif feedback:
-        accuracy = feedback.get("accuracy_rating", 5)
-        was_helpful = feedback.get("was_helpful", True)
-        actionable = feedback.get("actionable", True)
+        # Check for feedback from Incident Report (before the row)
+        feedback = get_feedback_from_json(evidence_file)
+        feedback_warning = None
+        feedback_info = None
+        confirm_generate_key = "confirm_rca_with_negative_feedback"
+        confirm_no_feedback_key = "confirm_rca_no_feedback"
         
-        # Determine if feedback is negative
-        is_negative = accuracy < 3 or not was_helpful or not actionable
-        
-        if is_negative:
+        if not feedback:
             feedback_warning = (
-                f"⚠️ **Warning:** Incident Report feedback indicates issues:\n"
-                f"- Accuracy Rating: {accuracy}/5\n"
-                f"- Helpful: {'✅' if was_helpful else '❌'}\n"
-                f"- Actionable: {'✅' if actionable else '❌'}\n\n"
-                f"**Evidence Reliability:** ⚠️ Poor\n\n"
-                f"**Recommendation:** Review the Incident Report feedback before generating RCA. "
-                f"The RCA may be based on inaccurate analysis."
+                "⚠️ **No Feedback Provided:** Incident Report feedback has not been saved.\n\n"
+                "**Evidence Reliability:** ⚠️ Unreliable (no validation)\n\n"
+                "**Recommendation:** Please review the Incident Report in the **Incident Report** tab "
+                "and provide feedback before generating RCA. This ensures the evidence quality is validated."
             )
             confirm_generate = st.checkbox(
-                "I understand the risks and want to generate RCA anyway",
-                key=confirm_generate_key
+                "I understand the evidence is unvalidated and want to generate RCA anyway",
+                key=confirm_no_feedback_key
             )
-        else:
-            # Positive feedback - show summary
-            feedback_info = (
-                f"✅ **Feedback Summary:**\n"
-                f"- Accuracy Rating: {accuracy}/5\n"
-                f"- Helpful: ✅\n"
-                f"- Actionable: ✅\n\n"
-                f"**Evidence Reliability:** ✅ Validated"
-            )
-            confirm_generate = True  # No confirmation needed for positive feedback
-    
-    # Show warning/info before button
-    if feedback_warning:
-        st.warning(feedback_warning)
-    elif feedback_info:
-        st.info(feedback_info)
-    
-    # Check if prepared evidence is available from Evidence Review
-    prepared_evidence = st.session_state.get("prepared_evidence_for_llm")
-    if prepared_evidence:
-        review_metadata = st.session_state.get("llm_review_metadata", {})
-        mask_enabled = review_metadata.get("mask_enabled", False)
-        filter_enabled = review_metadata.get("filter_enabled", False)
-        
-        # Create columns to place button next to info message
-        info_col, btn_col = st.columns([3, 1])
-        with info_col:
-            st.info(f"💡 **Prepared evidence available** from Evidence Review tab. "
-                    f"Masking: {'✅ Enabled' if mask_enabled else '❌ Disabled'}, "
-                    f"Filtering: {'✅ Enabled' if filter_enabled else '❌ Disabled'}. "
-                    f"This will be used for RCA generation.")
-        with btn_col:
-            generate_rca_btn = st.button("🚀 Generate RCA", type="primary", use_container_width=True,
-                                         key="btn_generate_rca")
-    else:
-        # No prepared evidence, button spans full width
-        generate_rca_btn = st.button("🚀 Generate RCA", type="primary", use_container_width=True,
-                                     key="btn_generate_rca_no_prep")
-    
-    # Check confirmation if no feedback or negative feedback
-    if generate_rca_btn:
-        if not feedback and not confirm_generate:
-            st.error("❌ Please confirm that you understand the evidence is unvalidated before generating RCA.")
-            st.stop()
-        elif feedback_warning and not confirm_generate:
-            st.error("❌ Please confirm that you understand the risks before generating RCA.")
-            st.stop()
-    
-    if generate_rca_btn:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            st.error("❌ Missing OPENAI_API_KEY environment variable.")
-            st.stop()
-        
-        # Show generating message - use a simple container instead of status to avoid React conflicts
-        status_container = st.container()
-        with status_container:
-            st.info("🤖 Generating RCA... This may take a minute.")
-            # Create progress tracker with the container
-            progress_tracker = create_progress_tracker(status_container)
+        elif feedback:
+            accuracy = feedback.get("accuracy_rating", 5)
+            was_helpful = feedback.get("was_helpful", True)
+            actionable = feedback.get("actionable", True)
+            is_negative = accuracy < 3 or not was_helpful or not actionable
             
-            try:
-                # Get environment from session state or evidence
-                environment = st.session_state.get("selected_env")
-                if not environment and evidence_file:
-                    # Try to extract from evidence file
-                    try:
-                        with open(evidence_file, 'r') as f:
-                            evidence_data = json.load(f)
-                            environment = evidence_data.get("metadata", {}).get("environment") or evidence_data.get("environment")
-                    except:
-                        pass
+            if is_negative:
+                feedback_warning = (
+                    f"⚠️ **Warning:** Incident Report feedback indicates issues:\n"
+                    f"- Accuracy Rating: {accuracy}/5\n"
+                    f"- Helpful: {'✅' if was_helpful else '❌'}\n"
+                    f"- Actionable: {'✅' if actionable else '❌'}\n\n"
+                    f"**Evidence Reliability:** ⚠️ Poor\n\n"
+                    f"**Recommendation:** Review the Incident Report feedback before generating RCA. "
+                    f"The RCA may be based on inaccurate analysis."
+                )
+                confirm_generate = st.checkbox(
+                    "I understand the risks and want to generate RCA anyway",
+                    key=confirm_generate_key
+                )
+            else:
+                feedback_info = (
+                    f"✅ **Feedback Summary:** Accuracy Rating: {accuracy}/5  |  Helpful: ✅  |  Actionable: ✅  |  Evidence Reliability: ✅ Validated"
+                )
+                confirm_generate = True
+        
+        # 80% feedback message / 20% Generate RCA button (button only when feedback has been provided)
+        col_feedback_msg, col_rca_btn = st.columns([4, 1])
+        with col_feedback_msg:
+            if feedback_warning:
+                st.warning(feedback_warning)
+            elif feedback_info:
+                st.info(feedback_info)
+        generate_rca_btn = False
+        with col_rca_btn:
+            if feedback is not None:
+                generate_rca_btn = st.button(
+                    "🔍 Generate RCA",
+                    type="primary",
+                    use_container_width=True,
+                    help="Generate full Root Cause Analysis after providing Incident Report feedback.",
+                    key="btn_generate_rca"
+                )
+        
+        model = st.session_state.get("selected_model", "gpt-4o-mini")
+        
+        # Check confirmation if no feedback or negative feedback
+        if generate_rca_btn:
+            if not feedback and not confirm_generate:
+                st.error("❌ Please confirm that you understand the evidence is unvalidated before generating RCA.")
+                st.stop()
+            elif feedback_warning and not confirm_generate:
+                st.error("❌ Please confirm that you understand the risks before generating RCA.")
+                st.stop()
+        
+        if generate_rca_btn:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                st.error("❌ Missing OPENAI_API_KEY environment variable.")
+                st.stop()
+            
+            # Show generating message - use a simple container instead of status to avoid React conflicts
+            status_container = st.container()
+            with status_container:
+                st.info("🤖 Generating RCA... This may take a minute.")
+                # Create progress tracker with the container
+                progress_tracker = create_progress_tracker(status_container)
                 
-                # Use feature flag to get appropriate client (RCAClient or LLMReasoner)
-                reasoner = get_reasoning_client(api_key=api_key, model=model, environment=environment)
+                try:
+                    # Get environment from session state or evidence
+                    environment = st.session_state.get("selected_env")
+                    if not environment and evidence_file:
+                        # Try to extract from evidence file
+                        try:
+                            with open(evidence_file, 'r') as f:
+                                evidence_data = json.load(f)
+                                environment = evidence_data.get("metadata", {}).get("environment") or evidence_data.get("environment")
+                        except:
+                            pass
+                    
+                    # Use feature flag to get appropriate client (RCAClient or LLMReasoner)
+                    reasoner = get_reasoning_client(api_key=api_key, model=model, environment=environment)
+                    
+                    # Use prepared evidence if available, otherwise use original file
+                    if prepared_evidence:
+                        # Save prepared evidence to temp file for LLMReasoner
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+                            json.dump(prepared_evidence, tmp_file, indent=2)
+                            tmp_evidence_file = tmp_file.name
+                        
+                        rca_text = reasoner.analyze(tmp_evidence_file, progress_callback=progress_tracker.callback)
+                        
+                        # Clean up temp file
+                        try:
+                            os.unlink(tmp_evidence_file)
+                        except Exception:
+                            pass
+                    else:
+                        # Use original evidence file
+                        rca_text = reasoner.analyze(evidence_file, progress_callback=progress_tracker.callback)
+                    
+                    tasks = reasoner.generate_tasks_from_rca(rca_text)
+                    
+                    # Store in session state
+                    st.session_state["rca_text"] = rca_text
+                    st.session_state["rca_evidence_file"] = evidence_file  # tie RCA to this evidence
+                    st.session_state["rca_tasks"] = tasks
+                    
+                    # Save RCA to file
+                    # Try to find corresponding IR file
+                    evidence_path = Path(evidence_file)
+                    ir_file = evidence_path.parent / f"{evidence_path.stem}_ir.json"
+                    ir_file_path = str(ir_file) if ir_file.exists() else None
+                    
+                    rca_generated_at = datetime.now(timezone.utc).isoformat()
+                    if _save_rca_to_file(evidence_file, rca_text, tasks, ir_file_path):
+                        st.session_state["rca_generated_at"] = rca_generated_at
+                        # Clear status container and show success
+                        status_container.empty()
+                        st.success("✅ RCA report generated and saved successfully!")
+                    else:
+                        st.session_state["rca_generated_at"] = rca_generated_at
+                        # Clear status container and show success with warning
+                        status_container.empty()
+                        st.success("✅ RCA report generated successfully!")
+                        st.warning("⚠️ Report generated but failed to save to file.")
                 
-                # Use prepared evidence if available, otherwise use original file
-                if prepared_evidence:
-                    # Save prepared evidence to temp file for LLMReasoner
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
-                        json.dump(prepared_evidence, tmp_file, indent=2)
-                        tmp_evidence_file = tmp_file.name
-                    
-                    rca_text = reasoner.analyze(tmp_evidence_file, progress_callback=progress_tracker.callback)
-                    
-                    # Clean up temp file
+                except Exception as e:
+                    # Clear status container and show error
+                    status_container.empty()
+                    # Display user-friendly error (exception message should already be sanitized by client)
+                    st.error(f"❌ RCA generation failed: {str(e)}")
+                    # Don't show full exception traceback to users - error message is already user-friendly
+                    st.stop()
+        
+        # C. Report Display - only show RCA that belongs to the currently selected evidence
+        evidence_file_rca = st.session_state["evidence_file"]
+        has_rca = False
+        if evidence_file_rca:
+            if st.session_state.get("rca_evidence_file") == evidence_file_rca and st.session_state.get("rca_text"):
+                has_rca = True
+            else:
+                # Clear stale RCA from another evidence
+                for key in ("rca_text", "rca_evidence_file", "rca_tasks", "rca_generated_at"):
+                    if key in st.session_state:
+                        del st.session_state[key]
+                # Try load from file for this evidence
+                evidence_path_rca = Path(evidence_file_rca)
+                rca_file = evidence_path_rca.parent / f"{evidence_path_rca.stem}_rca.json"
+                if rca_file.exists():
                     try:
-                        os.unlink(tmp_evidence_file)
+                        with open(rca_file, 'r', encoding='utf-8') as f:
+                            rca_data = json.load(f)
+                            if rca_data.get("report_text"):
+                                st.session_state["rca_text"] = rca_data["report_text"]
+                                st.session_state["rca_evidence_file"] = evidence_file_rca
+                                st.session_state["rca_generated_at"] = rca_data.get("generated_at")
+                                if rca_data.get("tasks"):
+                                    st.session_state["rca_tasks"] = rca_data["tasks"]
+                                has_rca = True
                     except Exception:
                         pass
-                else:
-                    # Use original evidence file
-                    rca_text = reasoner.analyze(evidence_file, progress_callback=progress_tracker.callback)
-                
-                tasks = reasoner.generate_tasks_from_rca(rca_text)
-                
-                # Store in session state
-                st.session_state["rca_text"] = rca_text
-                st.session_state["rca_tasks"] = tasks
-                
-                # Save RCA to file
-                # Try to find corresponding IR file
-                evidence_path = Path(evidence_file)
-                ir_file = evidence_path.parent / f"{evidence_path.stem}_ir.json"
-                ir_file_path = str(ir_file) if ir_file.exists() else None
-                
-                if _save_rca_to_file(evidence_file, rca_text, tasks, ir_file_path):
-                    # Clear status container and show success
-                    status_container.empty()
-                    st.success("✅ RCA report generated and saved successfully!")
-                else:
-                    # Clear status container and show success with warning
-                    status_container.empty()
-                    st.success("✅ RCA report generated successfully!")
-                    st.warning("⚠️ Report generated but failed to save to file.")
+        
+        if has_rca:
+            rca_text = st.session_state["rca_text"]
             
-            except Exception as e:
-                # Clear status container and show error
-                status_container.empty()
-                # Display user-friendly error (exception message should already be sanitized by client)
-                st.error(f"❌ RCA generation failed: {str(e)}")
-                # Don't show full exception traceback to users - error message is already user-friendly
-                st.stop()
-    
-    # C. Report Display
-    has_rca = "rca_text" in st.session_state
-    
-    if has_rca:
-        rca_text = st.session_state["rca_text"]
-        
-        # Process RCA text to reduce heading sizes and convert to title case
-        def process_rca_headings(text):
-            """Reduce heading sizes by 50% and convert to title case."""
-            # List of headings to process (in order of specificity - longer first)
-            headings = [
-                "IMMEDIATE ACTIONS (next 15–30 minutes)",
-                "LONG-TERM / PREVENTIVE ACTIONS",
-                "MISSING DATA / FOLLOW-UP REQUESTS",
-                "DETAILED ROOT CAUSE ANALYSIS",
-                "COMPONENT-LEVEL SUMMARIES",
-                "EXECUTIVE SUMMARY",
-                "PRIMARY ROOT CAUSE",
-                "EVIDENCE SUMMARY",
-                "CONFIDENCE LEVEL (0–1.0)",
-                "IMMEDIATE ACTIONS",
-                "CONFIDENCE LEVEL",
-            ]
-            
-            # Process each heading
-            for heading in headings:
-                # Convert to title case
-                title_case = heading.title()
+            # Collapsible ROOT CAUSE ANALYSIS section (heading + date/time + report body + tasks + downloads)
+            st.markdown('<div class="report-heading-expander">', unsafe_allow_html=True)
+            with st.expander("ROOT CAUSE ANALYSIS", expanded=True):
+                # Show report generated date/time when available (convert UTC to local/browser time)
+                rca_generated_at = st.session_state.get("rca_generated_at")
+                if rca_generated_at:
+                    # Prefer browser timezone, fall back to Environment tab timezone selector
+                    display_tz = st.session_state.get("browser_timezone") or st.session_state.get("env_issue_timezone")
+                    rca_generated_str = format_datetime_local(rca_generated_at, include_timezone=True, user_timezone=display_tz)
+                    st.caption(f"**Report generated:** {rca_generated_str}")
                 
-                # Replace various heading formats with smaller heading (#### = h4, which is 50% of h2)
-                # Pattern 1: "# 1. EXECUTIVE SUMMARY" -> "#### Executive Summary"
-                # Pattern 2: "## EXECUTIVE SUMMARY" -> "#### Executive Summary"
-                # Pattern 3: "# EXECUTIVE SUMMARY" -> "#### Executive Summary"
-                # Handle both at start of line and in middle of text
-                patterns = [
-                    # Match at start of line with optional number prefix
-                    (rf'^(#{{1,3}})\s*\d+\.\s*{re.escape(heading)}\s*$', r'#### ' + title_case, re.MULTILINE),
-                    # Match at start of line without number
-                    (rf'^(#{{1,3}})\s*{re.escape(heading)}\s*$', r'#### ' + title_case, re.MULTILINE),
-                    # Match anywhere with optional number prefix
-                    (rf'(#{{1,3}})\s*\d+\.\s*{re.escape(heading)}\s*', r'#### ' + title_case, 0),
-                    # Match anywhere without number
-                    (rf'(#{{1,3}})\s*{re.escape(heading)}\s*', r'#### ' + title_case, 0),
-                ]
+                # Process RCA text to reduce heading sizes and convert to title case
+                def process_rca_headings(text):
+                    """Reduce heading sizes by 50% and convert to title case."""
+                    # List of headings to process (in order of specificity - longer first)
+                    headings = [
+                        "IMMEDIATE ACTIONS (next 15–30 minutes)",
+                        "LONG-TERM / PREVENTIVE ACTIONS",
+                        "MISSING DATA / FOLLOW-UP REQUESTS",
+                        "DETAILED ROOT CAUSE ANALYSIS",
+                        "COMPONENT-LEVEL SUMMARIES",
+                        "EXECUTIVE SUMMARY",
+                        "PRIMARY ROOT CAUSE",
+                        "EVIDENCE SUMMARY",
+                        "CONFIDENCE LEVEL (0–1.0)",
+                        "IMMEDIATE ACTIONS",
+                        "CONFIDENCE LEVEL",
+                    ]
+                    for heading in headings:
+                        title_case = heading.title()
+                        patterns = [
+                            (rf'^(#{{1,3}})\s*\d+\.\s*{re.escape(heading)}\s*$', r'##### ' + title_case, re.MULTILINE),
+                            (rf'^(#{{1,3}})\s*{re.escape(heading)}\s*$', r'##### ' + title_case, re.MULTILINE),
+                            (rf'(#{{1,3}})\s*\d+\.\s*{re.escape(heading)}\s*', r'##### ' + title_case, 0),
+                            (rf'(#{{1,3}})\s*{re.escape(heading)}\s*', r'##### ' + title_case, 0),
+                        ]
+                        for pattern, replacement, flags in patterns:
+                            text = re.sub(pattern, replacement, text, flags=flags)
+                    return text
                 
-                for pattern, replacement, flags in patterns:
-                    text = re.sub(pattern, replacement, text, flags=flags)
-            
-            return text
-        
-        # Process the RCA text
-        processed_rca_text = process_rca_headings(rca_text)
-        
-        # Completely bypass format_rca_report and render raw markdown to avoid React errors
-        # This is a temporary workaround to identify if format_rca_report is the issue
-        try:
-            # Just render the processed RCA text as markdown (no HTML processing at all)
-            # This will show tables as markdown tables which Streamlit handles natively
-            st.markdown(processed_rca_text)
-        except Exception as e:
-            st.error(f"❌ Error rendering RCA report: {str(e)}")
-            # Ultimate fallback: show as plain text
-            st.text(rca_text)
-        
-        # D. Task Matrix
-        if "rca_tasks" in st.session_state and st.session_state["rca_tasks"]:
-            st.subheader("🧩 Task Ownership Matrix")
-            
-            # Normalize tasks before display to ensure correct Component/Task mapping
-            tasks = _normalize_rca_tasks(st.session_state["rca_tasks"])
-            
-            if tasks and isinstance(tasks, list) and len(tasks) > 0:
-                # Convert to table format
-                task_rows = []
-                for task in tasks:
-                    task_rows.append({
-                        "Component": task.get("component", "N/A"),
-                        "Task": task.get("task", "N/A"),
-                        "Owner": task.get("team", task.get("owner", "Infra")),
-                        "Priority": task.get("priority", "Medium"),
-                        "Effort": task.get("effort", "M")
-                    })
+                # Process the RCA text
+                processed_rca_text = process_rca_headings(rca_text)
+                try:
+                    st.markdown(processed_rca_text)
+                except Exception as e:
+                    st.error(f"❌ Error rendering RCA report: {str(e)}")
+                    st.text(rca_text)
                 
-                st.table(task_rows)
-            else:
-                st.info("No tasks generated.")
-        
-        
-        # E. Downloads
-        st.subheader("💾 Downloads")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                "Download RCA (TXT)",
-                data=rca_text,
-                file_name=f"rca_report_{Path(evidence_file).stem}.txt",
-                mime="text/plain",
-                key="dl_rca_report_txt"
-            )
-        with col2:
-            evidence_json = json.dumps(evidence_data, indent=2)
-            st.download_button(
-                "Download Evidence (JSON)",
-                data=evidence_json,
-                file_name=f"evidence_{Path(evidence_file).stem}.json",
-                mime="application/json",
-                key="dl_rca_evidence_json"
-            )
+                # D. Task Matrix
+                if "rca_tasks" in st.session_state and st.session_state["rca_tasks"]:
+                    st.markdown('<h4 class="report-section-h4">🧩 Task Ownership Matrix</h4>', unsafe_allow_html=True)
+                    tasks = _normalize_rca_tasks(st.session_state["rca_tasks"])
+                    if tasks and isinstance(tasks, list) and len(tasks) > 0:
+                        task_rows = []
+                        for task in tasks:
+                            task_rows.append({
+                                "Component": task.get("component", "N/A"),
+                                "Task": task.get("task", "N/A"),
+                                "Owner": task.get("team", task.get("owner", "Infra")),
+                                "Priority": task.get("priority", "Medium"),
+                                "Effort": task.get("effort", "M")
+                            })
+                        st.table(task_rows)
+                    else:
+                        st.info("No tasks generated.")
+            st.markdown('</div>', unsafe_allow_html=True)
+
 
 # ======================================================================
-# TAB 7: IR HISTORY (View Past Incident Reports)
+# TAB 5: IR HISTORY (View Past Incident Reports)
 # ======================================================================
 # NOTE: This tab works independently of evidence collection.
 # It can be accessed at any time to view historical IRs.
@@ -3306,7 +3699,7 @@ with tab_ir_history:
             st.rerun()
         
         st.markdown("### 📄 Incident Report")
-        st.caption(f"**Date:** {selected_ir['date']} | **Session:** {selected_ir['session_id']}")
+        st.caption(f"**Report generated:** {selected_ir['date']} | **Session:** {selected_ir['session_id']}")
         
         formatted_ir = format_incident_response_report(selected_ir["ir_text"])
         st.markdown(formatted_ir, unsafe_allow_html=True)

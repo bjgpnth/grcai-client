@@ -44,7 +44,19 @@
           "type": "object",
           "properties": {
             "hosts": {"type": "array", "items": {"type": "string"}},
-            "settings": {"type": "object"}
+            "settings": {"type": "object"},
+            "config_expectations": {
+              "type": "object",
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "responsibilities": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "notes": {"type": "string"}
+              },
+              "required": ["enabled", "responsibilities"]
+            }
           },
           "required": ["hosts"]
         }

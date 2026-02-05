@@ -22,6 +22,7 @@ from client.rca_client import get_reasoning_client
 
 from connectors.registry import CONNECTOR_REGISTRY
 from config.config_loader import ConfigLoader
+from client.constraint_extractor import extract_minimal_constraints
 
 
 # ================================================================
@@ -116,11 +117,12 @@ class SessionOrchestrator:
         self.store = EvidenceStore(base_dir=sessions_dir)
 
     # ----------------------------------------------------------------------
-    def run_non_interactive(self, issue_time, components, observations, environment):
+    def run_non_interactive(self, issue_time, components, observations, environment, user_timezone=None):
         self.issue_time = issue_time
         self.components = components
         self.observations = observations
         self.environment = environment
+        self.user_timezone = user_timezone  # Store user timezone for evidence metadata
 
         self._load_environment_config()
 
@@ -244,7 +246,13 @@ class SessionOrchestrator:
             "issue_time": self.issue_time.isoformat(),
             "components": self.components,
             "observations": self.observations,
+            "user_timezone": self.user_timezone,  # Store user timezone in context
         }
+
+        # Extract minimal constraints from environment config (security hardening)
+        constraints = extract_minimal_constraints(self.config)
+        if constraints:
+            self.logger.info(f"Extracted minimal constraints for {len(constraints)} components: {list(constraints.keys())}")
 
         path = self.store.save_session(
             context=context,
@@ -253,7 +261,8 @@ class SessionOrchestrator:
             os_nodes=results["os_nodes"],
             environment=self.environment,
             collected_at=collected_at,
-            host_collection_status=results.get("host_collection_status", {})
+            host_collection_status=results.get("host_collection_status", {}),
+            constraints=constraints if constraints else None
         )
 
         results["evidence_file"] = path

@@ -121,7 +121,11 @@ def _render_host_service_view(
         )
     )
     
-    # Render each host
+    # Use session state to track which hosts are expanded
+    if "expanded_highlights_hosts" not in st.session_state:
+        st.session_state["expanded_highlights_hosts"] = []
+    
+    # Render each host with collapsible functionality
     for host_name, components in sorted_hosts:
         # Determine host overall status
         host_has_issues = any(
@@ -129,71 +133,99 @@ def _render_host_service_view(
             for comp_data in components.values()
         )
         
-        # Host header
+        # Check current state from session
+        is_expanded = host_name in st.session_state["expanded_highlights_hosts"]
+        
+        # Auto-expand hosts with issues on first load
+        if host_has_issues and not is_expanded and host_name not in st.session_state.get("_auto_expanded_hosts", set()):
+            st.session_state["expanded_highlights_hosts"].append(host_name)
+            if "_auto_expanded_hosts" not in st.session_state:
+                st.session_state["_auto_expanded_hosts"] = set()
+            st.session_state["_auto_expanded_hosts"].add(host_name)
+            is_expanded = True
+        
+        # Create clickable header using button (styled to look like text)
+        display_arrow = "▼" if is_expanded else "▶"
         if host_has_issues:
             total_critical = sum(c["critical_count"] for c in components.values())
             total_warning = sum(c["warning_count"] for c in components.values())
-            
             issue_summary = []
             if total_critical > 0:
                 issue_summary.append(f'{total_critical} critical')
             if total_warning > 0:
                 issue_summary.append(f'{total_warning} warning')
-            
-            st.markdown(
-                f'✅ **{host_name}** <span style="color: #f57c00;">({", ".join(issue_summary)})</span>',
-                unsafe_allow_html=True
-            )
+            button_label = f'{display_arrow} ✅ {host_name} ({", ".join(issue_summary)})'
         else:
-            st.markdown(f'✅ **{host_name}**', unsafe_allow_html=True)
+            button_label = f'{display_arrow} ✅ {host_name}'
         
-        # Sort components by severity (issues first)
-        sorted_components = sorted(
-            components.items(),
-            key=lambda x: (
-                0 if x[1]["severity"] == "critical" else (1 if x[1]["severity"] == "warning" else 2),
-                -(x[1]["critical_count"] + x[1]["warning_count"])
-            )
+        # Button styled to look like a header (no border, transparent background)
+        button_clicked = st.button(
+            button_label,
+            key=f"host_toggle_{host_name}",
+            use_container_width=False,
+            type="secondary"
         )
         
-        # Separate components with issues from those without
-        components_with_issues = [
-            (name, data) for name, data in sorted_components 
-            if data["severity"] in ["critical", "warning"]
-        ]
-        components_ok = [
-            (name, data) for name, data in sorted_components 
-            if data["severity"] == "ok"
-        ]
+        # Toggle state if button was clicked
+        if button_clicked:
+            if host_name in st.session_state["expanded_highlights_hosts"]:
+                st.session_state["expanded_highlights_hosts"].remove(host_name)
+            else:
+                st.session_state["expanded_highlights_hosts"].append(host_name)
+            st.rerun()
         
-        # Render components with issues first
-        for component_name, component_data in components_with_issues:
-            concerns = component_data["concerns"]
-            severity = component_data["severity"]
-            critical_count = component_data["critical_count"]
-            warning_count = component_data["warning_count"]
-            
-            issue_summary = []
-            if critical_count > 0:
-                issue_summary.append(f'{critical_count} critical')
-            if warning_count > 0:
-                issue_summary.append(f'{warning_count} warning')
-            
-            status_emoji = "🔴" if severity == "critical" else "🟡"
-            
-            with st.expander(
-                f"📦 **{component_name}** {status_emoji} ({', '.join(issue_summary)})",
-                expanded=(severity == "critical")  # Auto-expand critical
-            ):
-                _render_host_concerns(component_name, host_name, concerns, evidence_data)
+        # Re-check state after potential toggle (for display after rerun)
+        is_expanded = host_name in st.session_state["expanded_highlights_hosts"]
         
-        # Add separator if there are both issues and OK components
-        if components_with_issues and components_ok:
-            st.markdown("")  # Small spacing
-        
-        # Render components without issues
-        for component_name, component_data in components_ok:
-            st.markdown(f"📦 **{component_name}** ✅ - No issues detected", unsafe_allow_html=True)
+        # Show components if host is expanded (not using nested expander)
+        if is_expanded:
+            # Sort components by severity (issues first)
+            sorted_components = sorted(
+                components.items(),
+                key=lambda x: (
+                    0 if x[1]["severity"] == "critical" else (1 if x[1]["severity"] == "warning" else 2),
+                    -(x[1]["critical_count"] + x[1]["warning_count"])
+                )
+            )
+            
+            # Separate components with issues from those without
+            components_with_issues = [
+                (name, data) for name, data in sorted_components 
+                if data["severity"] in ["critical", "warning"]
+            ]
+            components_ok = [
+                (name, data) for name, data in sorted_components 
+                if data["severity"] == "ok"
+            ]
+            
+            # Render components with issues first (use regular expanders - not nested)
+            for component_name, component_data in components_with_issues:
+                concerns = component_data["concerns"]
+                severity = component_data["severity"]
+                critical_count = component_data["critical_count"]
+                warning_count = component_data["warning_count"]
+                
+                issue_summary = []
+                if critical_count > 0:
+                    issue_summary.append(f'{critical_count} critical')
+                if warning_count > 0:
+                    issue_summary.append(f'{warning_count} warning')
+                
+                status_emoji = "🔴" if severity == "critical" else "🟡"
+                
+                with st.expander(
+                    f"📦 **{component_name}** {status_emoji} ({', '.join(issue_summary)})",
+                    expanded=(severity == "critical")  # Auto-expand critical
+                ):
+                    _render_host_concerns(component_name, host_name, concerns, evidence_data)
+            
+            # Add separator if there are both issues and OK components
+            if components_with_issues and components_ok:
+                st.markdown("")  # Small spacing
+            
+            # Render components without issues
+            for component_name, component_data in components_ok:
+                st.markdown(f"📦 **{component_name}** ✅ - No issues detected", unsafe_allow_html=True)
     
     # Summary at the bottom
     _render_summary(host_service_data, all_concerns, evidence_data)
@@ -468,16 +500,14 @@ def _render_summary(
     metadata = evidence_data.get("metadata", {})
     collected_at = metadata.get("collected_at", "N/A")
     
-    # Format collected date nicely
-    try:
-        from datetime import datetime
-        if collected_at != "N/A":
-            dt = datetime.fromisoformat(collected_at.replace('Z', '+00:00'))
-            collected_at_formatted = dt.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            collected_at_formatted = collected_at
-    except:
-        collected_at_formatted = collected_at
+    # Format collected date nicely (convert UTC to local timezone)
+    # Browser timezone is accessed via st.session_state
+    from ui.utils.helpers import format_datetime_local
+    browser_tz = st.session_state.get("browser_timezone", None)
+    if collected_at != "N/A":
+        collected_at_formatted = format_datetime_local(collected_at, include_timezone=True, user_timezone=browser_tz)
+    else:
+        collected_at_formatted = "N/A"
     
     # Create two columns for side-by-side layout
     summary_col, status_col = st.columns(2)

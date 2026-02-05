@@ -17,7 +17,7 @@ import docker
 import signal
 from contextlib import contextmanager
 from connectors.host_connectors.base_host_connector import BaseHostConnector
-from typing import Any
+from typing import Any, Optional
 
 
 DEFAULT_DOCKER_TIMEOUT = 5
@@ -246,6 +246,25 @@ class DockerHostConnector(BaseHostConnector):
     # -------------------------------------------------
     def read_file_in_container(self, container_id, path):
         return self.exec_in_container(container_id, f"cat {path}")
+
+    # -------------------------------------------------
+    #           TIMEZONE QUERY (Phase 2)
+    # -------------------------------------------------
+    def _query_timezone_runtime(self) -> Optional[str]:
+        """
+        Query timezone from Docker host (not container).
+        
+        Note: This queries the HOST's timezone, not the container's.
+        Containers typically run in UTC, but the HOST may be in a different timezone.
+        
+        For Docker hosts, we don't have direct SSH access through this connector.
+        We rely on config fallback (host_info.get("timezone")) or return None.
+        
+        Future enhancement: If SSH is available via global_access, we could use it.
+        """
+        # DockerHostConnector doesn't have direct host access
+        # Return None to use config fallback (handled by base class)
+        return None
 
     # -------------------------------------------------
     #                  CLOSE CLIENT

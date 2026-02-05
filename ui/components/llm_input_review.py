@@ -51,84 +51,12 @@ def render_llm_input_review(evidence_data: Dict[str, Any]) -> Tuple[Dict[str, An
     if "llm_review_filter_enabled" not in st.session_state:
         st.session_state["llm_review_filter_enabled"] = True
     if "llm_review_aggressiveness" not in st.session_state:
-        st.session_state["llm_review_aggressiveness"] = "medium"
+        st.session_state["llm_review_aggressiveness"] = "aggressive"
     if "llm_review_selected_components" not in st.session_state:
         # Initialize with all components selected
         st.session_state["llm_review_selected_components"] = _get_all_components(evidence_data)
     
-    # Section 1: Security & Masking Status
-    st.markdown('<h3 style="font-size: 1.2rem; margin-top: 1rem;">🔒 Security & Masking Status</h3>', unsafe_allow_html=True)
-    
-    mask_enabled = st.session_state["llm_review_mask_enabled"]
-    filter_enabled = st.session_state["llm_review_filter_enabled"]
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if mask_enabled:
-            st.success("✅ **Masking Enabled** - Sensitive data will be masked")
-        else:
-            st.error("⚠️ **Raw Data Mode** - Unmasked data will be sent to LLM")
-    
-    with col2:
-        if filter_enabled:
-            st.info(f"✅ **Log Filtering Enabled** - Aggressiveness: {st.session_state['llm_review_aggressiveness'].title()}")
-        else:
-            st.info("ℹ️ **Log Filtering Disabled** - All logs will be included")
-    
-    if not mask_enabled:
-        st.warning("⚠️ **WARNING**: You are about to send raw, unmasked data to the LLM. This may include sensitive information like IPs, tokens, passwords, and other PII.")
-    
-    # Section 2: Filtering & Masking Controls
-    st.markdown('<h3 style="font-size: 1.2rem; margin-top: 1rem;">⚙️ Filtering & Masking Controls</h3>', unsafe_allow_html=True)
-    
-    control_cols = st.columns(2)
-    
-    with control_cols[0]:
-        st.markdown("**Mask sensitive data (IPs, tokens, passwords, emails) before sending to LLM**")
-        mask_enabled = st.checkbox(
-            "Enable data masking",
-            value=st.session_state["llm_review_mask_enabled"],
-            key="mask_checkbox",
-            help="Mask sensitive data like IPs, tokens, passwords. RECOMMENDED: Keep this enabled."
-        )
-        st.session_state["llm_review_mask_enabled"] = mask_enabled
-        
-        if not mask_enabled:
-            raw_data_warning = st.checkbox(
-                "⚠️ I understand I'm sending raw data",
-                value=False,
-                key="raw_data_warning_checkbox",
-                help="You must confirm to send raw data"
-            )
-            if not raw_data_warning:
-                st.stop()  # Prevent proceeding without confirmation
-    
-    with control_cols[1]:
-        st.markdown("**Filter out normal log lines to reduce payload size and focus on relevant errors**")
-        # Create columns for checkbox and radio buttons side by side
-        filter_col1, filter_col2 = st.columns([1, 2])
-        with filter_col1:
-            filter_enabled = st.checkbox(
-                "Apply log filtering",
-                value=st.session_state["llm_review_filter_enabled"],
-                key="filter_checkbox",
-                help="Remove normal log lines to reduce payload size"
-            )
-            st.session_state["llm_review_filter_enabled"] = filter_enabled
-        
-        with filter_col2:
-            if filter_enabled:
-                aggressiveness = st.radio(
-                    "Filtering aggressiveness",
-                    ["light", "medium", "aggressive"],
-                    index=["light", "medium", "aggressive"].index(st.session_state["llm_review_aggressiveness"]),
-                    key="aggressiveness_radio",
-                    help="Light: Remove only obvious noise. Medium: Balanced. Aggressive: Remove most normal logs.",
-                    horizontal=True
-                )
-                st.session_state["llm_review_aggressiveness"] = aggressiveness
-    
-    # Section 3: Component Selection
+    # Section 1: Component Selection (First)
     all_components = _get_all_components(evidence_data)
     selected_components = st.session_state["llm_review_selected_components"]
     
@@ -177,16 +105,21 @@ def render_llm_input_review(evidence_data: Dict[str, Any]) -> Tuple[Dict[str, An
         st.warning("⚠️ Please select at least one component to include.")
         st.stop()
     
-    # Section 4: Prepare evidence based on selections
+    # Section 2: Prepare evidence based on selections (using current settings)
+    # Get current settings from session state
+    mask_enabled = st.session_state["llm_review_mask_enabled"]
+    filter_enabled = st.session_state["llm_review_filter_enabled"]
+    aggressiveness = st.session_state["llm_review_aggressiveness"]
+    
     prepared_evidence = _prepare_evidence(
         evidence_data,
         selected_components,
         mask_enabled,
         filter_enabled,
-        st.session_state["llm_review_aggressiveness"]
+        aggressiveness
     )
     
-    # Section 5: Payload Preview
+    # Section 4: Payload Preview
     st.markdown('<h3 style="font-size: 1.2rem; margin-top: 1rem;">📄 Payload Preview</h3>', unsafe_allow_html=True)
     
     preview_tabs = st.tabs(["Summary", "Structured View", "Raw JSON", "Raw Logs", "Delta View"])
@@ -330,59 +263,72 @@ def render_llm_input_review(evidence_data: Dict[str, Any]) -> Tuple[Dict[str, An
             }
         )
         
-        # Show masking stats if available
-        if "masking_stats" in st.session_state:
-            stats = st.session_state["masking_stats"]
-            st.markdown("**Masking Statistics**")
-            
-            # Create a table for masking statistics
-            masking_stats_data = [
-                {"Metric": "IPs Masked", "Value": str(stats.get("ips_masked", 0))},
-                {"Metric": "Tokens Masked", "Value": str(stats.get("tokens_masked", 0))},
-                {"Metric": "Emails Masked", "Value": str(stats.get("emails_masked", 0))},
-                {"Metric": "Paths Masked", "Value": str(stats.get("paths_masked", 0))},
-                {"Metric": "Other Masked", "Value": str(stats.get("other_masked", 0))}
-            ]
-            
-            # Convert to DataFrame and display without headers/index
-            df_masking = pd.DataFrame(masking_stats_data)
-            st.dataframe(
-                df_masking,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Metric": st.column_config.TextColumn("", width="medium"),
-                    "Value": st.column_config.TextColumn("", width="medium")
-                }
-            )
+        # Show masking and filtering stats side by side if available
+        has_masking_stats = "masking_stats" in st.session_state
+        has_filtering_stats = "filter_stats" in st.session_state
         
-        # Show filtering stats if available
-        if "filter_stats" in st.session_state:
-            stats = st.session_state["filter_stats"]
-            st.markdown("**Filtering Statistics**")
+        if has_masking_stats or has_filtering_stats:
+            stat_col1, stat_col2 = st.columns(2)
             
-            # Calculate removal percentage
-            removal_percent = (stats.get("removed_lines", 0) / stats.get("total_lines", 1)) * 100 if stats.get("total_lines", 0) > 0 else 0
+            # Masking Statistics (left column)
+            with stat_col1:
+                if has_masking_stats:
+                    stats = st.session_state["masking_stats"]
+                    st.markdown("**Masking Statistics**")
+                    
+                    # Create a table for masking statistics
+                    masking_stats_data = [
+                        {"Metric": "IPs Masked", "Value": str(stats.get("ips_masked", 0))},
+                        {"Metric": "Tokens Masked", "Value": str(stats.get("tokens_masked", 0))},
+                        {"Metric": "Emails Masked", "Value": str(stats.get("emails_masked", 0))},
+                        {"Metric": "Paths Masked", "Value": str(stats.get("paths_masked", 0))},
+                        {"Metric": "Other Masked", "Value": str(stats.get("other_masked", 0))}
+                    ]
+                    
+                    # Convert to DataFrame and display without headers/index
+                    df_masking = pd.DataFrame(masking_stats_data)
+                    st.dataframe(
+                        df_masking,
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "Metric": st.column_config.TextColumn("", width="medium"),
+                            "Value": st.column_config.TextColumn("", width="medium")
+                        }
+                    )
+                else:
+                    st.write("")  # Empty space if no masking stats
             
-            # Create a table for filtering statistics
-            filtering_stats_data = [
-                {"Metric": "Total Lines", "Value": str(stats.get("total_lines", 0))},
-                {"Metric": "Kept Lines", "Value": str(stats.get("kept_lines", 0))},
-                {"Metric": "Removed Lines", "Value": str(stats.get("removed_lines", 0))},
-                {"Metric": "Removal Rate", "Value": f"{removal_percent:.1f}%"}
-            ]
-            
-            # Convert to DataFrame and display without headers/index
-            df_filtering = pd.DataFrame(filtering_stats_data)
-            st.dataframe(
-                df_filtering,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Metric": st.column_config.TextColumn("", width="medium"),
-                    "Value": st.column_config.TextColumn("", width="medium")
-                }
-            )
+            # Filtering Statistics (right column)
+            with stat_col2:
+                if has_filtering_stats:
+                    stats = st.session_state["filter_stats"]
+                    st.markdown("**Filtering Statistics**")
+                    
+                    # Calculate removal percentage
+                    removal_percent = (stats.get("removed_lines", 0) / stats.get("total_lines", 1)) * 100 if stats.get("total_lines", 0) > 0 else 0
+                    
+                    # Create a table for filtering statistics
+                    filtering_stats_data = [
+                        {"Metric": "Total Lines", "Value": str(stats.get("total_lines", 0))},
+                        {"Metric": "Kept Lines", "Value": str(stats.get("kept_lines", 0))},
+                        {"Metric": "Removed Lines", "Value": str(stats.get("removed_lines", 0))},
+                        {"Metric": "Removal Rate", "Value": f"{removal_percent:.1f}%"}
+                    ]
+                    
+                    # Convert to DataFrame and display without headers/index
+                    df_filtering = pd.DataFrame(filtering_stats_data)
+                    st.dataframe(
+                        df_filtering,
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "Metric": st.column_config.TextColumn("", width="medium"),
+                            "Value": st.column_config.TextColumn("", width="medium")
+                        }
+                    )
+                else:
+                    st.write("")  # Empty space if no filtering stats
     
     # Tab 2: Structured View
     with preview_tabs[1]:
@@ -440,18 +386,121 @@ def render_llm_input_review(evidence_data: Dict[str, Any]) -> Tuple[Dict[str, An
     with preview_tabs[4]:
         _render_delta_view(evidence_data, prepared_evidence, mask_enabled, filter_enabled)
     
+    # Section 2: Security & Masking Controls (At Bottom) - Unified Table
+    st.markdown('<h3 style="font-size: 1.2rem; margin-top: 2rem;">🔒 Security & Masking Controls</h3>', unsafe_allow_html=True)
+    
+    # Get current state
+    mask_enabled = st.session_state["llm_review_mask_enabled"]
+    filter_enabled = st.session_state["llm_review_filter_enabled"]
+    aggressiveness = st.session_state["llm_review_aggressiveness"]
+    
+    # Create a custom table layout with controls inside using columns
+    # This creates a table-like structure with interactive controls
+    
+    # Table header styling
+    st.markdown("""
+    <style>
+    .controls-table {
+        border: 1px solid #e0e0e0;
+        border-radius: 5px;
+        padding: 10px;
+        background-color: #f9f9f9;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Create table-like structure with controls
+    # Row 1: Enable Data Masking
+    row1_col1, row1_col2 = st.columns([4, 2])
+    with row1_col1:
+        mask_toggle = st.checkbox(
+            "Enable Data Masking",
+            value=mask_enabled,
+            key="mask_checkbox_bottom",
+            help="Mask sensitive data (IPs, tokens, passwords, emails) before sending to LLM"
+        )
+        st.session_state["llm_review_mask_enabled"] = mask_toggle
+        mask_enabled = mask_toggle
+    with row1_col2:
+        status_text = "✅ Enabled" if mask_enabled else "❌ Disabled"
+        st.markdown(f"**{status_text}**")
+    
+    # Row 2: Enable Log Filtering
+    row2_col1, row2_col2 = st.columns([4, 2])
+    with row2_col1:
+        filter_toggle = st.checkbox(
+            "Enable Log Filtering",
+            value=filter_enabled,
+            key="filter_checkbox_bottom",
+            help="Filter out normal log lines to reduce payload size and focus on relevant errors"
+        )
+        st.session_state["llm_review_filter_enabled"] = filter_toggle
+        filter_enabled = filter_toggle
+    with row2_col2:
+        status_text = f"✅ Enabled ({aggressiveness.title()})" if filter_enabled else "❌ Disabled"
+        st.markdown(f"**{status_text}**")
+    
+    # Row 3: Filtering Aggressiveness (only shown if filtering is enabled)
+    if filter_enabled:
+        row3_col1, row3_col2 = st.columns([4, 2])
+        with row3_col1:
+            aggressiveness = st.selectbox(
+                "Filtering Aggressiveness",
+                ["light", "medium", "aggressive"],
+                index=["light", "medium", "aggressive"].index(st.session_state["llm_review_aggressiveness"]),
+                key="aggressiveness_select_bottom",
+                help="Light: Remove only obvious noise. Medium: Balanced. Aggressive: Remove most normal logs."
+            )
+            st.session_state["llm_review_aggressiveness"] = aggressiveness
+        with row3_col2:
+            st.markdown(f"**{aggressiveness.title()}**")
+    
+    if not mask_enabled:
+        raw_data_warning = st.checkbox(
+            "⚠️ I understand I'm sending raw data",
+            value=False,
+            key="raw_data_warning_checkbox_bottom",
+            help="You must confirm to send raw data"
+        )
+        if not raw_data_warning:
+            st.stop()  # Prevent proceeding without confirmation
+    
+    # Warning if masking is disabled
+    if not mask_enabled:
+        st.warning("⚠️ **WARNING**: You are about to send raw, unmasked data to the LLM. This may include sensitive information like IPs, tokens, passwords, and other PII.")
+    
+    # Re-prepare evidence with updated settings (controls at bottom may have changed settings)
+    # Use the latest settings from session state
+    final_mask_enabled = st.session_state["llm_review_mask_enabled"]
+    final_filter_enabled = st.session_state["llm_review_filter_enabled"]
+    final_aggressiveness = st.session_state["llm_review_aggressiveness"]
+    
+    # Re-prepare with final settings
+    final_prepared_evidence = _prepare_evidence(
+        evidence_data,
+        selected_components,
+        final_mask_enabled,
+        final_filter_enabled,
+        final_aggressiveness
+    )
+    
+    # Recalculate sizes with final evidence
+    final_original_size = len(json.dumps(evidence_data, indent=2))
+    final_prepared_size = len(json.dumps(final_prepared_evidence, indent=2))
+    final_size_reduction = ((final_original_size - final_prepared_size) / final_original_size * 100) if final_original_size > 0 else 0
+    
     # Return prepared evidence for LLM
     metadata = {
-        "mask_enabled": mask_enabled,
-        "filter_enabled": filter_enabled,
-        "aggressiveness": st.session_state["llm_review_aggressiveness"],
+        "mask_enabled": final_mask_enabled,
+        "filter_enabled": final_filter_enabled,
+        "aggressiveness": final_aggressiveness,
         "selected_components": selected_components,
-        "original_size": original_size,
-        "prepared_size": prepared_size,
-        "size_reduction_percent": size_reduction,
+        "original_size": final_original_size,
+        "prepared_size": final_prepared_size,
+        "size_reduction_percent": final_size_reduction,
     }
     
-    return prepared_evidence, metadata
+    return final_prepared_evidence, metadata
 
 
 def _prepare_evidence(
