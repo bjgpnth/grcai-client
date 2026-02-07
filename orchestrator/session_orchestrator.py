@@ -597,7 +597,14 @@ class SessionOrchestrator:
                     continue
 
                 # Get service config (just instances, no hosts list)
-                comp_cfg = host_services[comp]
+                # For generic_docker, inject full host_services so adapter can iterate over unclaimed services
+                if comp == "generic_docker":
+                    comp_cfg = {
+                        **(host_services.get("generic_docker") or {}),
+                        "_host_services": host_services,
+                    }
+                else:
+                    comp_cfg = host_services[comp]
 
                 # Get component evidence container
                 comp_evidence = results["host"][comp]

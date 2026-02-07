@@ -166,8 +166,18 @@ hosts:
       - name: nginx
       - name: mssql
       - name: node-app
+      - name: grcai-central-runtime-20260205-104516
 
     services:
+      generic_docker: {}
+
+      grcai-central-runtime-20260205-104516:
+        instances:
+          - name: grcai-central-runtime-20260205-104516
+            runtime: docker
+            container: grcai-central-runtime-20260205-104516
+            port: 8000
+
       nginx:
         instances:
           - name: nginx

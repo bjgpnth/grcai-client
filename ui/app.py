@@ -1569,15 +1569,31 @@ with tab_env:
                 # Fallback: show "Local" to indicate it's user's local time, even if we don't know the timezone
                 tz_display = "Local"
             
+            # Extract component options from environment YAML (services defined per host)
+            component_options = set()
+            for host in env_config.get("hosts", []):
+                services = host.get("services", {})
+                if isinstance(services, dict):
+                    component_options.update(services.keys())
+            # Sort with "os" first if present; fallback to hardcoded list if no services in YAML
+            if component_options:
+                component_list = sorted(component_options, key=lambda x: (x != "os", x.lower()))
+            else:
+                component_list = ["tomcat", "nginx", "postgres", "os", "redis", "kafka", "mssql", "nodejs", "docker"]
+            # Filter default_components to only include valid options (from this environment)
+            valid_defaults = [c for c in default_components if c in component_list]
+            if not valid_defaults and component_list:
+                valid_defaults = ["os"] if "os" in component_list else [component_list[0]]
+
             # All fields in a single line: Components (60%), Date (15%), Time (10%), Timezone (15%)
             col_components, col_date, col_time, col_tz = st.columns([60, 15, 10, 15])
             
             with col_components:
-                # Components selection (60% width)
+                # Components selection (60% width) - options from environment YAML
                 components = st.multiselect(
                     "Which components were affected?",
-                    ["tomcat", "nginx", "postgres", "os", "redis", "kafka", "mssql", "nodejs", "docker"],
-                    default=default_components,
+                    component_list,
+                    default=valid_defaults,
                     key="env_components"
                 )
             

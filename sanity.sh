@@ -6,6 +6,9 @@ case $1 in
     "docker")
         export SANITY_ENV=az-docker-services
         ;;
+    "combined")
+        export SANITY_ENV=az-combined-services
+        ;;
     "qa")
         export SANITY_ENV=qa
         ;;

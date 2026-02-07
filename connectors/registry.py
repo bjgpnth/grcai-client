@@ -45,6 +45,7 @@ _safe_register("kafka", "connectors.adapters.kafka_adapter", "KafkaAdapter")
 _safe_register("mssql", "connectors.adapters.mssql_adapter", "MSSQLAdapter")
 _safe_register("nodejs", "connectors.adapters.nodejs_adapter", "NodeJSAdapter")
 _safe_register("docker", "connectors.adapters.docker_adapter", "DockerAdapter")
+_safe_register("generic_docker", "connectors.adapters.generic_docker_adapter", "GenericDockerAdapter")
 
 # future:
 # _safe_register("db", "connectors.adapters.db_adapter", "DBAdapter")
