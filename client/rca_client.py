@@ -298,25 +298,17 @@ def create_rca_client(api_key: str, model: str = "gpt-4o-mini", environment: str
 
 def get_reasoning_client(api_key: str, model: str = "gpt-4o-mini", environment: str = None):
     """
-    Get reasoning client (RCAClient or LLMReasoner) based on feature flag.
+    Get reasoning client (RCAClient). Client always uses central over HTTP;
+    central may run locally or remotely.
     
     Args:
-        api_key: OpenAI API key
+        api_key: OpenAI API key (passed to central)
         model: Model name
         environment: Environment name
     
     Returns:
-        RCAClient if remote mode, LLMReasoner if local mode
+        RCAClient
     """
-    reasoning_mode = os.getenv("GRCAI_REASONING_MODE", "remote").lower()
-    
-    if reasoning_mode == "local":
-        # Import here to avoid dependency when using remote mode
-        from llm.llm_reasoner import LLMReasoner
-        logger.info("Using local LLMReasoner (development mode)")
-        return LLMReasoner(api_key=api_key, model=model, environment=environment)
-    else:
-        # Default to remote mode
-        logger.info("Using remote RCAClient (production mode)")
-        return create_rca_client(api_key=api_key, model=model, environment=environment)
+    logger.info("Using remote RCAClient (central may run locally or remotely)")
+    return create_rca_client(api_key=api_key, model=model, environment=environment)
 
