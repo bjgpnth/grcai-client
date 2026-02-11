@@ -1,0 +1,249 @@
+gRCAi Central Enforcement Library & Safe Evidence Schema
+
+Purpose
+
+Introduce a mandatory enforcement layer between data collection and persistence to guarantee that no sensitive operational data is stored or exported. Adapters produce raw findings; the enforcement library converts or rejects them before they become evidence.
+
+Target flow:
+
+Collect → Enforce Security Boundary → Persist → Export
+
+This converts privacy from a developer guideline into a runtime invariant.
+
+⸻
+
+Architectural Roles
+
+Adapters (Untrusted Producers)
+
+Responsibilities:
+	•	Detect signals (errors, timeouts, resource pressure)
+	•	Provide structured hints (not logs)
+
+Adapters MUST NOT:
+	•	Return raw log lines
+	•	Return request paths or payloads
+	•	Return identifiers or tokens
+
+Enforcement Library (Trusted Boundary)
+
+Responsibilities:
+	•	Validate
+	•	Normalize
+	•	Reduce
+	•	Reject unsafe input
+
+Only this component can pass data into EvidenceStore.
+
+EvidenceStore (Trusted Persistence)
+
+Stores only validated safe evidence.
+
+RCA Client (Exporter)
+
+Exports already-safe evidence. Sanitizer remains defense-in-depth.
+
+⸻
+
+Enforcement Library Behavior
+
+Fail Closed
+
+Unsafe data → exception → not stored
+
+Never attempt best-effort cleaning.
+
+⸻
+
+Validation Stages
+
+1) Structural Validation
+
+Reject if evidence contains:
+	•	free text log blocks
+	•	arbitrary nested dicts
+	•	unbounded strings (>256 chars)
+	•	unknown fields
+
+2) Sensitive Pattern Detection
+
+Reject values matching:
+	•	IP addresses
+	•	emails
+	•	URLs
+	•	file paths
+	•	tokens / base64 blobs
+	•	UUIDs representing user/session identifiers
+
+3) Vocabulary Enforcement
+
+Only allow predefined event types.
+Unknown event → reject.
+
+4) Normalization
+
+Convert adapter hints into canonical schema.
+
+Input:
+
+{"error": "timeout connecting to redis"}
+
+Output:
+
+event: dependency_timeout
+dependency: redis
+
+
+⸻
+
+Suggested API
+
+safe_evidence = privacy_enforcer.transform(adapter_output)
+EvidenceStore.save(safe_evidence)
+
+Adapters never construct final evidence objects.
+
+⸻
+
+Defense in Depth
+
+Layer 1: Enforcement library (guarantee)
+Layer 2: Sanitizer (regression protection)
+Layer 3: Network boundary (export safety)
+
+⸻
+
+Safe Evidence Schema
+
+Evidence must describe behavior only.
+No user-originated strings allowed.
+
+Top Level
+
+{
+  "schema_version": 2,
+  "environment": "prod",
+  "time_window": "ISO8601 interval",
+  "components": [ ComponentObservation ]
+}
+
+
+⸻
+
+ComponentObservation
+
+{
+  "component": "payment-api",
+  "host": "node-A",
+  "status": Status,
+  "metrics": Metrics,
+  "events": [ Event ]
+}
+
+
+⸻
+
+Status
+
+{
+  "reachable": true,
+  "accepting_connections": false,
+  "restarts_detected": true
+}
+
+
+⸻
+
+Metrics
+
+{
+  "cpu_high": true,
+  "memory_high": false,
+  "latency_p95_ms": 31000,
+  "error_rate_spike": true
+}
+
+Rules:
+	•	booleans preferred over raw percentages
+	•	aggregated numbers only
+	•	no raw samples
+
+⸻
+
+Event
+
+{
+  "type": "dependency_timeout",
+  "dependency": "redis",
+  "count": 187,
+  "first_seen": "timestamp",
+  "last_seen": "timestamp"
+}
+
+
+⸻
+
+Allowed Event Vocabulary (Initial Set)
+
+Resource:
+	•	cpu_saturation
+	•	memory_pressure
+	•	disk_full
+
+Availability:
+	•	service_unreachable
+	•	connection_refused
+	•	restart_detected
+
+Dependency:
+	•	dependency_timeout
+	•	dependency_error
+	•	connection_pool_exhausted
+
+Application:
+	•	internal_error
+	•	exception_detected
+	•	configuration_error
+
+Traffic:
+	•	error_rate_spike
+	•	latency_spike
+	•	retry_detected
+
+Security (behavior only):
+	•	auth_failure_spike
+	•	permission_denied_spike
+
+⸻
+
+Field Restrictions
+
+Field	Rule
+component	predefined identifier
+host	logical name only (no IP/FQDN)
+dependency	service label only
+strings	max 64 chars
+counts	aggregated integers only
+timestamps	allowed
+free text	forbidden
+
+
+⸻
+
+Migration Plan (Condensed)
+	1.	Introduce enforcement library in parallel mode
+	2.	Compare RCA results
+	3.	Disable raw evidence persistence
+	4.	Remove legacy log storage
+
+⸻
+
+Intended Guarantee
+
+If evidence files are copied outside the organization, they must not reveal:
+	•	users
+	•	customers
+	•	infrastructure layout
+	•	request data
+
+They should reveal only system behavior.

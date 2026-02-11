@@ -1,0 +1,247 @@
+gRCAi Privacy‑First Evidence Architecture (Recommendation)
+
+Purpose
+
+This document describes a design change for gRCAi: move from sanitize‑after‑collection to privacy‑first collection (reduce before store). The goal is to ensure no sensitive operational or customer data is ever persisted or transmitted while maintaining or improving RCA and Incident Response (IR) quality.
+
+This is not a compliance feature. It is an architectural guarantee.
+
+⸻
+
+Problem Statement
+
+Current flow:
+
+collect raw logs → store raw evidence → sanitize → send externally
+
+Risks:
+	•	Sensitive data stored on disk
+	•	Backup / snapshot exposure
+	•	Vendor sharing unsafe
+	•	Sanitizer correctness becomes critical security dependency
+	•	Logs contain business identifiers even after masking
+
+This makes the client machine a data repository instead of a diagnostic system.
+
+⸻
+
+Design Principle
+
+gRCAi should store behavior, not data.
+
+We do not want to hide sensitive data.
+We want to avoid collecting it entirely.
+
+Replace
+
+Raw evidence (text)
+
+With
+
+Diagnostic observations (structured signals)
+
+⸻
+
+Target Architecture
+
+Current
+
+collect → persist → sanitize → export
+
+Proposed
+
+collect → interpret → reduce → persist → export
+
+The reduction step becomes the trust boundary.
+Sanitization becomes a safety net, not the primary defense.
+
+⸻
+
+What Must Never Be Stored
+
+Remove these at collection time:
+
+Identifiers
+	•	usernames
+	•	emails
+	•	IP addresses
+	•	hostnames
+	•	tenant IDs
+	•	customer IDs
+	•	session IDs
+
+Content
+	•	request paths
+	•	query parameters
+	•	payloads
+	•	stack trace arguments
+	•	file contents
+
+Secrets
+	•	tokens
+	•	credentials
+	•	keys
+	•	connection strings
+
+Raw Logs
+	•	complete log lines
+	•	container stdout dumps
+
+⸻
+
+What Must Be Preserved
+
+RCA depends on behavior signals. These MUST remain:
+
+Time
+	•	timestamps
+	•	ordering
+	•	duration
+
+Rates
+	•	counts
+	•	spikes
+	•	error frequency
+
+Structure
+	•	component names
+	•	dependency direction
+	•	retry patterns
+
+State
+	•	resource utilization
+	•	availability
+	•	saturation
+
+Classification
+	•	error category
+	•	failure mode
+	•	protocol outcome
+
+⸻
+
+Evidence Schema (Target)
+
+ComponentObservation
+
+component: "payment-api"
+host: "node-A"
+time_window: "2026-01-02T10:00Z/10:05Z"
+
+Metrics
+
+metrics:
+  cpu_high: true
+  memory_high: false
+  error_rate_spike: true
+  latency_p95_ms: 31000
+
+Events
+
+events:
+  - type: upstream_timeout
+    dependency: billing-service
+    count: 187
+  - type: retry_detected
+    attempts: 3
+
+Status
+
+status:
+  reachable: true
+  accepting_connections: false
+
+No text logs allowed in evidence store.
+
+⸻
+
+Adapter Responsibilities
+
+Adapters must transform logs into signals.
+They must NOT return log text.
+
+Example transformation:
+
+Instead of
+
+GET /customer/8821/payment 500 upstream timed out
+
+Emit
+
+operation: payment
+failure: upstream_timeout
+http_status_class: 5xx
+
+
+⸻
+
+Migration Plan
+
+Phase 1 – Parallel Mode
+	•	Keep existing collectors
+	•	Add reducer layer
+	•	Store both formats
+	•	Validate RCA parity
+
+Phase 2 – Safe Store
+	•	Stop persisting raw logs
+	•	Keep raw logs only in memory
+	•	Persist reduced evidence only
+
+Phase 3 – Enforcement
+	•	Block any adapter returning raw logs
+	•	Add schema validation at store boundary
+
+Phase 4 – Remove Legacy
+	•	Delete log persistence paths
+	•	Simplify sanitizer
+
+⸻
+
+Acceptance Criteria
+
+A session evidence file must:
+	•	Contain no free‑form log lines
+	•	Contain no user‑originated strings
+	•	Contain only enumerated event types
+	•	Be safe to publicly share
+
+RCA output quality must remain unchanged or improved.
+
+⸻
+
+Expected Outcomes
+
+Security
+	•	No PII at rest
+	•	No secrets in backups
+	•	Safe to export
+
+Operational
+	•	Smaller evidence files
+	•	Faster reasoning
+	•	Deterministic parsing
+
+Product
+	•	Easier enterprise adoption
+	•	Simpler security review
+	•	Clear trust boundary
+
+⸻
+
+Non‑Goals
+
+This does NOT replace:
+	•	traditional log storage
+	•	SIEM systems
+	•	forensic investigation tools
+
+gRCAi is a reasoning system, not a logging system.
+
+⸻
+
+Guiding Rule for Developers
+
+If a human reading the evidence could identify a person, tenant, or specific request — the design is incorrect.
+
+If a human can understand system behavior without knowing who triggered it — the design is correct.
