@@ -14,9 +14,9 @@ The client uses **grcai-contracts** for schemas and OpenAPI. Two ways to provide
 **A. Dev: mount contracts (no copy)**  
 If you have both repos (e.g. `grcai-mvp/grcai-client` and `grcai-mvp/grcai-contracts`), the dev Compose file mounts `../grcai-contracts` into the container at `/grcai/contracts` and sets `CONTRACTS_PATH=/grcai/contracts`. No extra steps.
 
-**B. Production build: copy contracts into image**  
-- Either copy the contents of **grcai-contracts** into **grcai-client/contracts/** before building the image, or  
-- Build from the monorepo root so that `grcai-contracts` is available and the Dockerfile can copy it (if you switch the Dockerfile to use a build arg for contracts source).
+**B. Production build: copy contracts into image at build time**  
+- From monorepo root run `./build-with-contracts.sh` to build both images. The Dockerfiles use build context = monorepo root and COPY grcai-contracts into the image; contracts are not stored in grcai-client or grcai-central repos.
+- Or from monorepo root: `docker build -f grcai-client/Dockerfile.client -t grcai/client .` (same for Central with grcai-central/Dockerfile).
 
 The image always has a `/grcai/contracts` directory; in dev it is overridden by the volume when contracts are mounted.
 

@@ -1,19 +1,16 @@
 # gRCAi Client Runtime Dockerfile
-# 
-# This Dockerfile builds the CLIENT runtime image only.
-# It explicitly EXCLUDES all Central/IP-protected components:
-#   - llm/llm_reasoner.py
-#   - llm/evidence_reducer.py
-#   - llm/token_estimator.py
-#   - prompts/ directory
-#   - central_service/ directory
 #
-# Build: docker build -f Dockerfile.client -t grcai/client:latest .
-# Usage: See docs/deployment.md for deployment instructions
+# Build with context = directory that contains grcai-contracts and grcai-client
+# (e.g. grcai-mvp). Contracts are copied from grcai-contracts at build time;
+# they are NOT stored in this repo.
+#
+# From monorepo root (grcai-mvp):
+#   docker build -f grcai-client/Dockerfile.client -t grcai/client .
+#
+# Excludes all Central/IP components (llm/, prompts/, central_service/).
 
 FROM python:3.12-slim
 
-# Metadata labels for container identification
 LABEL org.opencontainers.image.title="gRCAi Client Runtime"
 LABEL org.opencontainers.image.description="Client runtime for gRCAi - excludes all IP-protected reasoning components"
 LABEL org.opencontainers.image.vendor="gRCAi"
@@ -22,8 +19,6 @@ LABEL org.opencontainers.image.architecture="amd64"
 
 WORKDIR /grcai
 
-# Install lightweight process and network tools for diagnostics
-# curl is required for health checks
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         procps \
@@ -33,63 +28,33 @@ RUN apt-get update && \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies
-# Note: requests library is needed for RCAClient HTTP calls
-COPY requirements.txt .
+# Contracts: copied from sibling grcai-contracts at build time (not from this repo)
+COPY grcai-contracts/ /grcai/contracts/
+
+# Client code and dependencies
+COPY grcai-client/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy CLIENT components only (explicitly exclude Central/IP components)
-# Copy root level files
-COPY main.py .
-COPY __version__.py .
+COPY grcai-client/main.py .
+COPY grcai-client/__version__.py .
+COPY grcai-client/client/ ./client/
+COPY grcai-client/connectors/ ./connectors/
+COPY grcai-client/orchestrator/ ./orchestrator/
+COPY grcai-client/evidence_store/ ./evidence_store/
+COPY grcai-client/ui/ ./ui/
+COPY grcai-client/config/ ./config/
+COPY grcai-client/utils/ ./utils/
 
-# Copy client code
-COPY client/ ./client/
-
-# Copy connectors (execution only, no reasoning)
-COPY connectors/ ./connectors/
-
-# Copy orchestrator (collection orchestration, no reasoning)
-COPY orchestrator/ ./orchestrator/
-
-# Copy evidence store (local storage)
-COPY evidence_store/ ./evidence_store/
-
-# Copy UI (local UI)
-COPY ui/ ./ui/
-
-# Copy config (configuration loading, no reasoning logic)
-COPY config/ ./config/
-
-# Config home in container: /config. Seed with sample so app works when no volume is mounted.
 RUN mkdir -p /config/initial /config/template /config/defaults
-COPY config/initial/ /config/initial/
-COPY config/template/ /config/template/
-COPY config/defaults/ /config/defaults/
-COPY config/reasoning_budget.yaml config/env_schema.json /config/
+COPY grcai-client/config/initial/ /config/initial/
+COPY grcai-client/config/template/ /config/template/
+COPY grcai-client/config/defaults/ /config/defaults/
+COPY grcai-client/config/reasoning_budget.yaml grcai-client/config/env_schema.json /config/
 ENV GRCAI_CONFIG_HOME=/config
 ENV GRCAI_SESSIONS_HOME=/grcai/grcai_sessions
 
-# Copy utils (utility functions)
-COPY utils/ ./utils/
-
-# Contracts (schemas, OpenAPI). Populate grcai-client/contracts from grcai-contracts for full image, or build from monorepo.
-COPY contracts/ /grcai/contracts/
-
-# CRITICAL: Do NOT copy:
-#   - llm/ directory (contains reasoning logic)
-#   - prompts/ directory (contains prompt engineering)
-#   - central_service/ directory (Central service code)
-
-# Create non-root user for security (Azure best practice)
-RUN useradd -m -u 1000 grcai && \
-    chown -R grcai:grcai /grcai
-
-# Set environment variables
-# Force remote mode in client image (IP components excluded)
 ENV PYTHONUNBUFFERED=1
 ENV GRCAI_REASONING_MODE=remote
-# Default Central URL, override via environment
 ENV GRCAI_CENTRAL_URL=https://grcai-central-dev.militva.dev
 ENV CONTRACTS_PATH=/grcai/contracts
 ENV STREAMLIT_SERVER_PORT=8501
@@ -97,18 +62,11 @@ ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
-# Expose UI port (Streamlit default)
-EXPOSE 8501
+RUN useradd -m -u 1000 grcai && \
+    chown -R grcai:grcai /grcai /config
 
-# Health check for Azure Container Instances / Kubernetes
+EXPOSE 8501
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
-
-# Switch to non-root user
 USER grcai
-
-# Default command (can be overridden)
-# For UI: streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0
-# For CLI: python main.py collect --environment qa --components os,tomcat
 CMD ["python", "main.py", "--help"]
-
