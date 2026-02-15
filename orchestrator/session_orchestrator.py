@@ -102,7 +102,7 @@ class SessionOrchestrator:
     Multi-host, environment-aware orchestrator (A5 version).
     """
 
-    def __init__(self, environment=None, sessions_dir="grcai_sessions", env_path=None):
+    def __init__(self, environment=None, sessions_dir=None, env_path=None):
         # >>>> initialize logger
         self.logger = configure_root_logger()
         self.logger.info("SessionOrchestrator starting")
@@ -114,6 +114,9 @@ class SessionOrchestrator:
         self.env_path = env_path
         self.config = {}
 
+        # Sessions dir: explicit arg, or GRCAI_SESSIONS_HOME, or default (client-specific, never in repo)
+        if sessions_dir is None:
+            sessions_dir = os.environ.get("GRCAI_SESSIONS_HOME", "grcai_sessions")
         self.store = EvidenceStore(base_dir=sessions_dir)
 
     # ----------------------------------------------------------------------

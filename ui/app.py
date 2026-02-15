@@ -53,6 +53,11 @@ except ImportError:
 
 # Configure logger for timezone conversion and other internal operations
 logger = logging.getLogger(__name__)
+
+
+def _sessions_root():
+    """Sessions directory root (client-specific, never in repo). GRCAI_SESSIONS_HOME if set."""
+    return Path(os.environ.get("GRCAI_SESSIONS_HOME", "grcai_sessions"))
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s'
@@ -541,7 +546,7 @@ def scan_historical_incident_reports(environment):
         List of dictionaries with IR metadata: date, observation, evidence_file, ir_text, trustworthy
     """
     historical_irs = []
-    sessions_dir = Path("grcai_sessions") / environment
+    sessions_dir = _sessions_root() / environment
     
     if not sessions_dir.exists():
         return historical_irs
@@ -1850,7 +1855,7 @@ with tab_evidence:
     env_for_files = st.session_state.get("selected_env") or "qa"  # Use current environment or default to qa
     if env_for_files == "":
         env_for_files = "qa"  # If explicitly empty, default to qa for file browsing
-    sessions_dir = Path("grcai_sessions") / env_for_files
+    sessions_dir = _sessions_root() / env_for_files
     
     available_files = []
     if sessions_dir.exists():

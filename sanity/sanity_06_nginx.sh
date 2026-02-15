@@ -9,7 +9,7 @@ section "Show environment hosts"
 $PY - <<PY
 from config.config_loader import ConfigLoader
 import os
-env = ConfigLoader().load_environment(os.environ.get("SANITY_ENV", "qa"))
+env = ConfigLoader().load_environment(os.environ.get("SANITY_ENV", "initial"))
 print("Using hosts:", [h["name"] for h in env.get("hosts", [])])
 PY
 

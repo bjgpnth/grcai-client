@@ -61,8 +61,20 @@ COPY ui/ ./ui/
 # Copy config (configuration loading, no reasoning logic)
 COPY config/ ./config/
 
+# Config home in container: /config. Seed with sample so app works when no volume is mounted.
+RUN mkdir -p /config/initial /config/template /config/defaults
+COPY config/initial/ /config/initial/
+COPY config/template/ /config/template/
+COPY config/defaults/ /config/defaults/
+COPY config/reasoning_budget.yaml config/env_schema.json /config/
+ENV GRCAI_CONFIG_HOME=/config
+ENV GRCAI_SESSIONS_HOME=/grcai/grcai_sessions
+
 # Copy utils (utility functions)
 COPY utils/ ./utils/
+
+# Contracts (schemas, OpenAPI). Populate grcai-client/contracts from grcai-contracts for full image, or build from monorepo.
+COPY contracts/ /grcai/contracts/
 
 # CRITICAL: Do NOT copy:
 #   - llm/ directory (contains reasoning logic)
@@ -79,6 +91,7 @@ ENV PYTHONUNBUFFERED=1
 ENV GRCAI_REASONING_MODE=remote
 # Default Central URL, override via environment
 ENV GRCAI_CENTRAL_URL=https://grcai-central-dev.militva.dev
+ENV CONTRACTS_PATH=/grcai/contracts
 ENV STREAMLIT_SERVER_PORT=8501
 ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 ENV STREAMLIT_SERVER_HEADLESS=true

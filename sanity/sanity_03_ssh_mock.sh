@@ -39,7 +39,7 @@ with patch("connectors.host_connectors.ssh_host_connector.SSHHostConnector._conn
         issue_time=datetime.now(timezone.utc),
         components=["os"],
         observations="ssh-sanity",
-        environment=os.environ.get("SANITY_ENV", "qa")
+        environment=os.environ.get("SANITY_ENV", "initial")
     )
 
     import json

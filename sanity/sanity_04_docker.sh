@@ -12,7 +12,7 @@ from config.config_loader import ConfigLoader
 from datetime import datetime, timezone
 import os
 
-env = ConfigLoader().load_environment(os.environ.get("SANITY_ENV", "qa"))
+env = ConfigLoader().load_environment(os.environ.get("SANITY_ENV", "initial"))
 hosts = env.get("hosts", [])
 
 print("Testing docker hosts:")
