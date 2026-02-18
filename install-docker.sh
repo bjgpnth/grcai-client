@@ -5,7 +5,7 @@
 set -e
 
 REPO_URL="https://github.com/bjgpnth/grcai-client"
-REPO_BRANCH="main"
+REPO_BRANCH="dev"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 INSTALL_DIR="/tmp/grcai-client-${TIMESTAMP}"
 IMAGE_NAME="grcai/client:${TIMESTAMP}"
