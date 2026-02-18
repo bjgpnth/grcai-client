@@ -46,7 +46,7 @@ echo "✅ Docker found: $(docker --version)"
 echo ""
 
 # Download code
-echo "Step 1: Downloading client code..."
+echo "Step 1: Downloading client code...from $REPO_URL branch $REPO_BRANCH"
 if command -v git &> /dev/null; then
     echo "Using git to clone repository..."
     if [ -d "$INSTALL_DIR" ]; then
