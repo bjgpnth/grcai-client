@@ -23,6 +23,8 @@ services:
       - ${HOME}/config:/config
       # Sessions (evidence, IR, RCA outputs). Client-specific, sensitive; create on host if missing.
       - ${HOME}/grcai_sessions:/grcai/grcai_sessions
+      # Host .ssh for SSH access to remote hosts (evidence collection). Container uses same keys as host.
+      - ${HOME}/.ssh:/root/.ssh:ro
       # Contracts: mount when grcai-contracts is sibling (e.g. grcai-mvp). If missing, comment out next line (host dir would be created empty).
       - ../grcai-contracts:/grcai/contracts:ro
     working_dir: /grcai

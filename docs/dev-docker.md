@@ -45,6 +45,8 @@ If **grcai-contracts** is at `../grcai-contracts`, it will be mounted automatica
 
 **Sessions:** Evidence and reports are stored in `$HOME/grcai_sessions` (client-specific, sensitive). The dev Compose mounts it to `/grcai/grcai_sessions` and sets `GRCAI_SESSIONS_HOME`. Create it if missing: `mkdir -p $HOME/grcai_sessions`. Optional: set `GRCAI_SESSIONS_HOME` to override.
 
+**SSH (remote hosts):** The dev Compose mounts `$HOME/.ssh` to `/root/.ssh` so the container can use your host SSH keys for evidence collection on remote hosts. Remote hosts must be reachable from the host; the container inherits access via the mounted keys. In env config you can omit `key_path` (default `~/.ssh/id_rsa`) or set `key_path: /root/.ssh/id_rsa` (or `/root/.ssh/id_ed25519`).
+
 ## 4. Run the UI inside the container
 
 ```bash
@@ -83,3 +85,4 @@ docker compose -f docker-compose.dev.yml down
 | Run CLI | `docker exec -it grcai-client-dev python main.py ...` |
 | Config | `$HOME/config` on host → `/config` in container; optional `GRCAI_CONFIG_HOME` override |
 | Sessions | `$HOME/grcai_sessions` on host → `/grcai/grcai_sessions` in container; optional `GRCAI_SESSIONS_HOME`; create if missing |
+| SSH | `$HOME/.ssh` on host → `/root/.ssh` in container (dev) or `/home/grcai/.ssh` (install); use default key or set `key_path` in config |

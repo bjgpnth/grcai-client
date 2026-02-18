@@ -183,6 +183,7 @@ docker run -d \
   -e GRCAI_SESSIONS_HOME=/grcai/grcai_sessions \
   -v "${HOME}/config:/config" \
   -e GRCAI_CONFIG_HOME=/config \
+  -v "${HOME}/.ssh:/home/grcai/.ssh:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   "$IMAGE_NAME" \
   streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
@@ -213,6 +214,8 @@ echo "⚠️  Next steps:"
 echo "  1. Edit configuration files in ${HOME}/config/ with your environment details"
 echo "     Templates have been copied from config/template/ if the directory was empty"
 echo "     Create environment subdirectories (e.g., ${HOME}/config/initial/initial.yaml) as needed"
-echo "  2. Restart container to apply config changes:"
+echo "  2. For SSH to remote hosts: your ${HOME}/.ssh is mounted so the container uses the same keys."
+echo "     In env config you can omit key_path (default ~/.ssh/id_rsa) or set key_path: /home/grcai/.ssh/id_rsa"
+echo "  3. Restart container to apply config changes:"
 echo "     docker restart $CONTAINER_NAME"
 echo ""
