@@ -53,6 +53,11 @@ except ImportError:
 
 # Configure logger for timezone conversion and other internal operations
 logger = logging.getLogger(__name__)
+
+
+def _sessions_root():
+    """Sessions directory root (client-specific, never in repo). GRCAI_SESSIONS_HOME if set."""
+    return Path(os.environ.get("GRCAI_SESSIONS_HOME", "grcai_sessions"))
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(name)s %(message)s'
@@ -91,10 +96,8 @@ def safe_error_data(error, component=None, host=None):
 # ----------------------------------------------------------------------
 # PAGE CONFIG
 # ----------------------------------------------------------------------
-st.set_page_config(page_title="GRCAI - RCA Assistant", layout="wide")
+st.set_page_config(page_title="gRCAi - guided RCA intelligence", layout="wide")
 
-# Main title with smaller font (reduced by 60-70% - using h4 instead of h1)
-st.markdown('#### gRCA*i* – *guided RCA intelligence*')
 # Inject JavaScript to detect browser timezone
 # Use postMessage to communicate from iframe to parent (to avoid sandbox restrictions)
 query_params = st.query_params
@@ -541,7 +544,7 @@ def scan_historical_incident_reports(environment):
         List of dictionaries with IR metadata: date, observation, evidence_file, ir_text, trustworthy
     """
     historical_irs = []
-    sessions_dir = Path("grcai_sessions") / environment
+    sessions_dir = _sessions_root() / environment
     
     if not sessions_dir.exists():
         return historical_irs
@@ -1057,7 +1060,11 @@ def load_evidence_file(file_path):
 # Add custom CSS for colored tabs and reduce spacing
 st.markdown("""
 <style>
-    /* Style the tabs with different colors */
+    /* Remove top padding so tabs sit at the top (Streamlit default adds space) */
+    section.main .block-container { padding-top: 0 !important; }
+    .stAppViewBlockContainer { padding-top: 0 !important; }
+    /* Collapse timezone-detection iframe (components.html) so it doesn't add gap above tabs */
+    .block-container iframe[src*="streamlit"] { height: 0 !important; min-height: 0 !important; overflow: hidden !important; display: block !important; }
     /* Style the tabs with different colors */
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
@@ -1850,7 +1857,7 @@ with tab_evidence:
     env_for_files = st.session_state.get("selected_env") or "qa"  # Use current environment or default to qa
     if env_for_files == "":
         env_for_files = "qa"  # If explicitly empty, default to qa for file browsing
-    sessions_dir = Path("grcai_sessions") / env_for_files
+    sessions_dir = _sessions_root() / env_for_files
     
     available_files = []
     if sessions_dir.exists():
@@ -1873,51 +1880,6 @@ with tab_evidence:
                 summary = get_evidence_summary(evidence_data)
             except:
                 pass
-    
-    # Build and display Evidence Browser title with date and time range (at the top)
-    if evidence_data and summary:
-        metadata = evidence_data.get("metadata", {})
-        time_window = summary.get("time_window")
-        
-        # Format date from collected_at or session_id
-        browser_tz = st.session_state.get("browser_timezone")
-        date_str = "N/A"
-        collected_at = metadata.get("collected_at")
-        if collected_at:
-            date_str = format_datetime_short(collected_at, user_timezone=browser_tz)
-            if date_str == "N/A":
-                # Fallback: try to extract from session_id if available
-                session_id = metadata.get("session_id", "")
-                if session_id and "_" in session_id:
-                    date_str = session_id.split("_")[1] if len(session_id.split("_")) > 1 else "N/A"
-        else:
-            # Fallback: try to extract from session_id if available
-            session_id = metadata.get("session_id", "")
-            if session_id and "_" in session_id:
-                date_str = session_id.split("_")[1] if len(session_id.split("_")) > 1 else "N/A"
-        
-        # Format time range from time_window (convert UTC to local timezone)
-        time_range_str = ""
-        if time_window and isinstance(time_window, dict):
-            since = time_window.get("since", "")
-            until = time_window.get("until", "")
-            if since and until:
-                # Format times in browser timezone
-                since_time = format_time_only(since, user_timezone=browser_tz)
-                until_time = format_time_only(until, user_timezone=browser_tz)
-                if since_time != "N/A" and until_time != "N/A":
-                    time_range_str = f" | from: {since_time} | to: {until_time}"
-                else:
-                    # If parsing fails, use raw values
-                    time_range_str = f" | from: {since} | to: {until}"
-        elif collected_at:
-            # Fallback: use collected_at as a single time point
-            time_str = format_time_only(collected_at, user_timezone=browser_tz)
-            if time_str != "N/A":
-                time_range_str = f" | collected: {time_str}"
-        
-        browser_title = f"📊 Evidence Browser - {date_str}{time_range_str}"
-        st.markdown(f'<h3 style="font-size: 1.2rem; margin-top: 1rem;">{browser_title}</h3>', unsafe_allow_html=True)
     
     # Show file selector if files exist
     if available_files:

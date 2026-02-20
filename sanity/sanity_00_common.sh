@@ -4,8 +4,8 @@ set -euo pipefail
 # Common header + helper functions for sanity tests.
 # All scripts should source this file.
 
-# Environment configuration - defaults to 'qa' if not set
-export SANITY_ENV="${SANITY_ENV:-qa}"
+# Environment configuration - defaults to 'initial' (sample env in repo) if not set
+export SANITY_ENV="${SANITY_ENV:-initial}"
 
 # Command to run Python in your environment (adjust if needed)
 PY="python3"

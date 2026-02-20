@@ -49,8 +49,15 @@ except ImportError:
             return "unknown"
 
 
+def _sessions_home():
+    """Sessions directory: GRCAI_SESSIONS_HOME if set, else default (client-specific, never in repo)."""
+    return os.environ.get("GRCAI_SESSIONS_HOME", "grcai_sessions")
+
+
 class EvidenceStore:
-    def __init__(self, base_dir="grcai_sessions"):
+    def __init__(self, base_dir=None):
+        if base_dir is None:
+            base_dir = _sessions_home()
         self.base_dir = Path(base_dir)
 
     def save_session(

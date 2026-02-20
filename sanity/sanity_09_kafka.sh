@@ -14,7 +14,7 @@ $PY <<PY
 from config.config_loader import ConfigLoader
 import os
 
-env = ConfigLoader().load_environment(os.environ.get("SANITY_ENV", "qa"))
+env = ConfigLoader().load_environment(os.environ.get("SANITY_ENV", "initial"))
 # In host-centric structure, check hosts for kafka service
 kafka_hosts = []
 for host in env.get("hosts", []):

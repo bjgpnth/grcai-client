@@ -5,7 +5,7 @@
 set -e
 
 REPO_URL="https://github.com/bjgpnth/grcai-client"
-REPO_BRANCH="main"
+REPO_BRANCH="dev"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 INSTALL_DIR="/tmp/grcai-client-${TIMESTAMP}"
 IMAGE_NAME="grcai/client:${TIMESTAMP}"
@@ -46,7 +46,7 @@ echo "✅ Docker found: $(docker --version)"
 echo ""
 
 # Download code
-echo "Step 1: Downloading client code..."
+echo "Step 1: Downloading client code...from $REPO_URL branch $REPO_BRANCH"
 if command -v git &> /dev/null; then
     echo "Using git to clone repository..."
     if [ -d "$INSTALL_DIR" ]; then
@@ -122,16 +122,14 @@ echo "  - UI Port: ${UI_PORT}"
 echo "  - Central URL: ${CENTRAL_URL}"
 echo ""
 
-# Create config template if missing (in volume mount location)
+# Create config from repo sample if missing (in $HOME/config, mounted as /config in container)
 if [ ! -f "${HOME}/config/initial/initial.yaml" ]; then
-    echo "Step 3: Creating initial configuration template..."
+    echo "Step 3: Creating initial configuration from sample..."
     mkdir -p "${HOME}/config/initial"
-    if [ -f "config/template/initial.yaml.template" ]; then
-        cp config/template/initial.yaml.template "${HOME}/config/initial/initial.yaml"
-        echo "✅ Config template created at: ${HOME}/config/initial/initial.yaml"
-        echo "⚠️  Please edit this file with your environment details"
+    if [ -f "config/initial/initial.yaml" ]; then
+        cp config/initial/initial.yaml "${HOME}/config/initial/initial.yaml"
+        echo "✅ Config sample copied to: ${HOME}/config/initial/initial.yaml"
     else
-        # Create minimal template
         cat > "${HOME}/config/initial/initial.yaml" <<EOF
 hosts:
   - name: localhost
@@ -146,9 +144,13 @@ services:
   os: {}
 EOF
         echo "✅ Minimal config created at: ${HOME}/config/initial/initial.yaml"
-        echo "⚠️  Please edit this file with your environment details"
     fi
+    echo "⚠️  Please edit ${HOME}/config/ with your environment details"
     echo ""
+fi
+if [ ! -f "${HOME}/config/reasoning_budget.yaml" ] && [ -f "config/reasoning_budget.yaml" ]; then
+    cp config/reasoning_budget.yaml "${HOME}/config/reasoning_budget.yaml"
+    echo "✅ reasoning_budget.yaml copied to ${HOME}/config/"
 fi
 
 # Build Docker image
@@ -178,7 +180,10 @@ docker run -d \
   -e GRCAI_CENTRAL_URL="$CENTRAL_URL" \
   -e OPENAI_API_KEY="$API_KEY" \
   -v "${HOME}/grcai_sessions:/grcai/grcai_sessions" \
-  -v "${HOME}/config:/grcai/config" \
+  -e GRCAI_SESSIONS_HOME=/grcai/grcai_sessions \
+  -v "${HOME}/config:/config" \
+  -e GRCAI_CONFIG_HOME=/config \
+  -v "${HOME}/.ssh:/home/grcai/.ssh:ro" \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   "$IMAGE_NAME" \
   streamlit run ui/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
@@ -209,6 +214,8 @@ echo "⚠️  Next steps:"
 echo "  1. Edit configuration files in ${HOME}/config/ with your environment details"
 echo "     Templates have been copied from config/template/ if the directory was empty"
 echo "     Create environment subdirectories (e.g., ${HOME}/config/initial/initial.yaml) as needed"
-echo "  2. Restart container to apply config changes:"
+echo "  2. For SSH to remote hosts: your ${HOME}/.ssh is mounted so the container uses the same keys."
+echo "     In env config you can omit key_path (default ~/.ssh/id_rsa) or set key_path: /home/grcai/.ssh/id_rsa"
+echo "  3. Restart container to apply config changes:"
 echo "     docker restart $CONTAINER_NAME"
 echo ""

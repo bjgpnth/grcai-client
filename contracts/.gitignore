@@ -1,0 +1,5 @@
+# Contract files are in grcai-contracts; do not commit them here.
+# Only README.md is tracked.
+*
+!.gitignore
+!README.md

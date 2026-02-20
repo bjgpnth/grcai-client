@@ -22,12 +22,10 @@ BASE = Path(__file__).resolve().parents[2]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-try:
-    from llm.token_estimator import estimate_tokens, estimate_prompt_tokens
-    from config.config_loader import ConfigLoader
-    TOKEN_ESTIMATOR_AVAILABLE = True
-except ImportError:
-    TOKEN_ESTIMATOR_AVAILABLE = False
+from config.config_loader import ConfigLoader
+
+# Client does not run LLM or reduction; central does. Use rough estimate for display only.
+TOKEN_ESTIMATOR_AVAILABLE = False
 
 
 def render_llm_input_review(evidence_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -151,56 +149,21 @@ def render_llm_input_review(evidence_data: Dict[str, Any]) -> Tuple[Dict[str, An
     estimated_tokens = estimated_tokens_prepared
     reduction_metadata = None
     
-    if TOKEN_ESTIMATOR_AVAILABLE:
-        try:
-            config_loader = ConfigLoader()
-            budget_config = config_loader.load_reasoning_budget()
-            max_tokens = budget_config.get("reasoning_budget", {}).get("max_tokens", 180000)
-            model_overrides = budget_config.get("reasoning_budget", {}).get("model_overrides", {})
-            if model_name in model_overrides:
-                max_tokens = model_overrides[model_name].get("max_tokens", max_tokens)
-            
-            # Apply evidence reduction to preview what will actually be sent
-            try:
-                from llm.evidence_reducer import reduce_evidence
-                from datetime import datetime
-                
-                # Extract issue_time from evidence
-                issue_time = None
-                metadata = prepared_evidence.get("metadata", {})
-                issue_time_str = metadata.get("issue_time")
-                if issue_time_str:
-                    try:
-                        issue_time = datetime.fromisoformat(issue_time_str.replace('Z', '+00:00'))
-                    except:
-                        pass
-                
-                # Apply reduction (use deep copy to avoid modifying prepared_evidence)
-                reduced_evidence = reduce_evidence(copy.deepcopy(prepared_evidence), budget_config, issue_time)
-                reduced_json = json.dumps(reduced_evidence, indent=2, sort_keys=True)
-                reduced_size = len(reduced_json)
-                
-                # Recalculate tokens on reduced evidence
-                estimated_tokens = estimate_prompt_tokens(reduced_json, model_name)
-                
-                # Get reduction metadata
-                if "_reduction_metadata" in reduced_evidence:
-                    reduction_metadata = reduced_evidence["_reduction_metadata"]
-                
-            except Exception as e:
-                # If reduction fails, use prepared evidence
-                st.warning(f"Could not preview evidence reduction: {e}")
-                reduced_evidence = prepared_evidence
-                reduced_size = prepared_size
-                estimated_tokens = estimated_tokens_prepared
-            
-            budget_info = {
-                "max_tokens": max_tokens,
-                "under_budget": estimated_tokens <= max_tokens,
-                "percent_used": (estimated_tokens / max_tokens * 100) if max_tokens > 0 else 0
-            }
-        except Exception as e:
-            st.warning(f"Could not load budget configuration: {e}")
+    # Load budget from config for display (central performs actual reduction and token count)
+    try:
+        config_loader = ConfigLoader()
+        budget_config = config_loader.load_reasoning_budget()
+        max_tokens = budget_config.get("reasoning_budget", {}).get("max_tokens", 180000)
+        model_overrides = budget_config.get("reasoning_budget", {}).get("model_overrides", {})
+        if model_name in model_overrides:
+            max_tokens = model_overrides[model_name].get("max_tokens", max_tokens)
+        budget_info = {
+            "max_tokens": max_tokens,
+            "under_budget": estimated_tokens <= max_tokens,
+            "percent_used": (estimated_tokens / max_tokens * 100) if max_tokens > 0 else 0
+        }
+    except Exception as e:
+        st.warning(f"Could not load budget configuration: {e}")
     
     # Tab 1: Summary
     with preview_tabs[0]:

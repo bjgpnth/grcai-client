@@ -1,5 +1,6 @@
 # config/config_loader.py
 
+import os
 import yaml
 import logging
 from pathlib import Path
@@ -41,7 +42,10 @@ logger = logging.getLogger(__name__)
     
 
 class ConfigLoader:
-    def __init__(self, base_dir="config"):
+    def __init__(self, base_dir=None):
+        # Optional override: GRCAI_CONFIG_HOME. If unset, use default (e.g. host $HOME/config or container /config set by runtime).
+        if base_dir is None:
+            base_dir = os.environ.get("GRCAI_CONFIG_HOME", "config")
         self.base_dir = Path(base_dir)
 
     def _load_yaml(self, path: Path):
