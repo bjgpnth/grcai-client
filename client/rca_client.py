@@ -20,6 +20,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from client.evidence_sanitizer import sanitize_evidence, validate_no_sensitive_data
+from utils.version import get_version as get_client_version, get_contracts_version
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class RCAClient:
         api_key: str,
         model: str = "gpt-4o-mini",
         environment: str = None,
+        contracts_version: str | None = None,
         timeout: int = 300  # 5 minutes for LLM calls
     ):
         """
@@ -53,6 +55,7 @@ class RCAClient:
         self.api_key = api_key
         self.model = model  # Kept for interface compatibility, but Central uses it
         self.environment = environment
+        self.contracts_version = contracts_version or get_contracts_version()
         self.timeout = timeout
         self._last_analyze_tasks = []  # Store tasks from last analyze() call
         
@@ -116,7 +119,9 @@ class RCAClient:
         
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "X-GRCAI-Contracts-Version": self.contracts_version,
+            "X-GRCAI-Client-Version": get_client_version(),
         }
         
         # Retry logic with custom exponential backoff
@@ -292,7 +297,8 @@ def create_rca_client(api_key: str, model: str = "gpt-4o-mini", environment: str
         central_url=central_url,
         api_key=api_key,
         model=model,
-        environment=environment
+        environment=environment,
+        contracts_version=get_contracts_version(),
     )
 
 
