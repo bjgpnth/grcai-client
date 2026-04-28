@@ -30,6 +30,8 @@ class Metadata(TypedDict):
     session_id: str  # Format: rca_2025-11-23T11:33:09Z_550e8400
     collector_version: str  # GRCAI version (e.g., "1.2.3")
     collector_build: str  # Git commit/tag (e.g., "abcdef1234")
+    contracts_version: str  # Contracts SemVer (e.g., "1.0.0")
+    contracts_major: int  # Contracts MAJOR (e.g., 1)
     environment: str  # Environment name (e.g., "qa", "prod")
     collected_at: str  # ISO 8601 UTC with microseconds
     saved_at: str  # ISO 8601 UTC with microseconds

@@ -14,9 +14,18 @@ The client uses **grcai-contracts** for schemas and OpenAPI. Two ways to provide
 **A. Dev: mount contracts (no copy)**  
 If you have both repos (e.g. `grcai-mvp/grcai-client` and `grcai-mvp/grcai-contracts`), the dev Compose file mounts `../grcai-contracts` into the container at `/grcai/contracts` and sets `CONTRACTS_PATH=/grcai/contracts`. No extra steps.
 
-**B. Production build: copy contracts into image at build time**  
-- From monorepo root run `./build-with-contracts.sh` to build both images. The Dockerfiles use build context = monorepo root and COPY grcai-contracts into the image; contracts are not stored in grcai-client or grcai-central repos.
-- Or from monorepo root: `docker build -f grcai-client/Dockerfile.client -t grcai/client .` (same for Central with grcai-central/Dockerfile).
+**B. Image build: copy contracts into this repo (Phase 1)**  
+For Phase 1, keep a copied snapshot of contracts in `grcai-client/contracts/` (manual sync). The Dockerfile copies `./contracts` into the image at `/grcai/contracts`.
+
+From `grcai-client`:
+```bash
+docker build -f Dockerfile.client -t grcai/client:latest .
+```
+
+Registry publish (recommended):
+```bash
+./scripts/build-and-push.sh 0.1.0
+```
 
 The image always has a `/grcai/contracts` directory; in dev it is overridden by the volume when contracts are mounted.
 
@@ -78,7 +87,7 @@ docker compose -f docker-compose.dev.yml down
 | Step | Commands / notes |
 |------|-------------------|
 | Contracts in dev | Have `grcai-contracts` next to `grcai-client`; Compose mounts it and sets `CONTRACTS_PATH` |
-| Contracts in image | Copy grcai-contracts into `grcai-client/contracts/` before `docker build`, or build from monorepo |
+| Contracts in image | Keep a copied snapshot in `grcai-client/contracts/` (manual sync for Phase 1) |
 | Build once | `docker compose -f docker-compose.dev.yml build` |
 | Start | `docker compose -f docker-compose.dev.yml up -d` (set `GRCAI_CENTRAL_URL`, `OPENAI_API_KEY`) |
 | Run UI | `docker exec -it grcai-client-dev ./ui.sh` |

@@ -1,11 +1,10 @@
 # gRCAi Client Runtime Dockerfile
 #
-# Build with context = directory that contains grcai-contracts and grcai-client
-# (e.g. grcai-mvp). Contracts are copied from grcai-contracts at build time;
-# they are NOT stored in this repo.
+# Build with context = grcai-client repo root. Contracts are copied from
+# the in-repo contracts/ folder (populate from grcai-contracts if needed).
 #
-# From monorepo root (grcai-mvp):
-#   docker build -f grcai-client/Dockerfile.client -t grcai/client .
+# From grcai-client root (e.g. after clone or install-docker.sh):
+#   docker build -f Dockerfile.client -t grcai/client .
 #
 # Excludes all Central/IP components (llm/, prompts/, central_service/).
 
@@ -28,28 +27,28 @@ RUN apt-get update && \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Contracts: copied from sibling grcai-contracts at build time (not from this repo)
-COPY grcai-contracts/ /grcai/contracts/
+# Contracts: from in-repo contracts/ (populate from grcai-contracts repo)
+COPY contracts/ /grcai/contracts/
 
 # Client code and dependencies
-COPY grcai-client/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY grcai-client/main.py .
-COPY grcai-client/__version__.py .
-COPY grcai-client/client/ ./client/
-COPY grcai-client/connectors/ ./connectors/
-COPY grcai-client/orchestrator/ ./orchestrator/
-COPY grcai-client/evidence_store/ ./evidence_store/
-COPY grcai-client/ui/ ./ui/
-COPY grcai-client/config/ ./config/
-COPY grcai-client/utils/ ./utils/
+COPY main.py .
+COPY __version__.py .
+COPY client/ ./client/
+COPY connectors/ ./connectors/
+COPY orchestrator/ ./orchestrator/
+COPY evidence_store/ ./evidence_store/
+COPY ui/ ./ui/
+COPY config/ ./config/
+COPY utils/ ./utils/
 
 RUN mkdir -p /config/initial /config/template /config/defaults
-COPY grcai-client/config/initial/ /config/initial/
-COPY grcai-client/config/template/ /config/template/
-COPY grcai-client/config/defaults/ /config/defaults/
-COPY grcai-client/config/reasoning_budget.yaml grcai-client/config/env_schema.json /config/
+COPY config/initial/ /config/initial/
+COPY config/template/ /config/template/
+COPY config/defaults/ /config/defaults/
+COPY config/reasoning_budget.yaml config/env_schema.json /config/
 ENV GRCAI_CONFIG_HOME=/config
 ENV GRCAI_SESSIONS_HOME=/grcai/grcai_sessions
 

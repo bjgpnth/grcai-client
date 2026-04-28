@@ -2888,6 +2888,7 @@ with tab_evidence:
                 st.text(f"Session ID: {metadata.get('session_id', 'N/A')}")
                 st.text(f"Version: {metadata.get('collector_version', 'N/A')}")
                 st.text(f"Build: {metadata.get('collector_build', 'N/A')}")
+                st.text(f"Contracts: {metadata.get('contracts_version', 'N/A')} (major={metadata.get('contracts_major', 'N/A')})")
                 browser_tz = st.session_state.get("browser_timezone")
                 if metadata.get("issue_time"):
                     issue_time_display = format_datetime_local(metadata.get('issue_time'), include_timezone=True, user_timezone=browser_tz)

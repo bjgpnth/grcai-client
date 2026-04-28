@@ -27,7 +27,7 @@ from evidence_store.evidence_schema import SCHEMA_VERSION
 
 # Import utils.version with error handling
 try:
-    from utils.version import get_version, get_build
+    from utils.version import get_version, get_build, get_contracts_version, semver_major
 except ImportError:
     # If import still fails, try direct import
     try:
@@ -39,6 +39,8 @@ except ImportError:
             spec.loader.exec_module(utils_version)
             get_version = utils_version.get_version
             get_build = utils_version.get_build
+            get_contracts_version = getattr(utils_version, "get_contracts_version", lambda: "unknown")
+            semver_major = getattr(utils_version, "semver_major", lambda _v: None)
         else:
             raise ImportError(f"utils/version.py not found at {utils_version_path}")
     except Exception:
@@ -47,6 +49,10 @@ except ImportError:
             return "0.0.0-dev"
         def get_build():
             return "unknown"
+        def get_contracts_version():
+            return "unknown"
+        def semver_major(_v):
+            return None
 
 
 def _sessions_home():
@@ -105,10 +111,14 @@ class EvidenceStore:
         saved_at_str = saved_at.isoformat()
         
         # Build metadata
+        contracts_version = get_contracts_version()
+        contracts_major = semver_major(contracts_version)
         metadata = {
             "session_id": session_id,
             "collector_version": get_version(),
             "collector_build": get_build(),
+            "contracts_version": contracts_version,
+            "contracts_major": contracts_major if contracts_major is not None else -1,
             "environment": environment,
             "collected_at": collected_at_str,
             "saved_at": saved_at_str,

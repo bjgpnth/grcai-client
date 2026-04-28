@@ -122,3 +122,43 @@ def get_build() -> str:
     
     return "unknown"
 
+
+def get_contracts_path() -> str:
+    """
+    Determine contracts directory path.
+
+    Preference:
+    1) CONTRACTS_PATH env var (dev mounts / image path)
+    2) repo-local ./contracts (copied contracts)
+    """
+    return os.getenv("CONTRACTS_PATH") or str(Path(__file__).resolve().parents[1] / "contracts")
+
+
+def get_contracts_version() -> str:
+    """
+    Read contracts SemVer from <contracts_path>/version.txt.
+    Returns "unknown" if missing/unreadable.
+    """
+    try:
+        p = Path(get_contracts_path()) / "version.txt"
+        return p.read_text(encoding="utf-8").strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def semver_major(version: str) -> Optional[int]:
+    """
+    Parse MAJOR from a SemVer-ish string like '1.2.3' or 'v1.2.3'.
+    Returns None if parsing fails.
+    """
+    if not version:
+        return None
+    v = version.strip()
+    if v.startswith("v"):
+        v = v[1:]
+    major_str = v.split(".", 1)[0]
+    try:
+        return int(major_str)
+    except Exception:
+        return None
+
