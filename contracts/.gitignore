@@ -1,5 +1,7 @@
 # Contract files are in grcai-contracts; do not commit them here.
-# Only README.md is tracked.
+# README.md and version.txt are tracked (version.txt is required at runtime for
+# X-GRCAI-Contracts-Version / Docker COPY contracts/).
 *
 !.gitignore
 !README.md
+!version.txt
