@@ -119,6 +119,34 @@ class SessionOrchestrator:
             sessions_dir = os.environ.get("GRCAI_SESSIONS_HOME", "grcai_sessions")
         self.store = EvidenceStore(base_dir=sessions_dir)
 
+    def _is_unclaimed_docker_service(self, comp: str, host_services: dict | None) -> bool:
+        """Return True when a selected service should be routed via generic_docker."""
+        if not isinstance(host_services, dict):
+            return False
+        if comp in CONNECTOR_REGISTRY or comp == "generic_docker":
+            return False
+        if "generic_docker" not in host_services:
+            return False
+        svc_cfg = host_services.get(comp)
+        if not isinstance(svc_cfg, dict):
+            return False
+        instances = svc_cfg.get("instances", [])
+        if not isinstance(instances, list):
+            return False
+        return any(
+            isinstance(inst, dict) and (inst.get("container") or inst.get("runtime") == "docker")
+            for inst in instances
+        )
+
+    def _is_routable_generic_docker_component(self, comp: str) -> bool:
+        """Return True if any configured host can collect this unclaimed Docker service."""
+        for host in self.config.get("hosts", []) or []:
+            if not isinstance(host, dict):
+                continue
+            if self._is_unclaimed_docker_service(comp, host.get("services", {})):
+                return True
+        return False
+
     # ----------------------------------------------------------------------
     def run_non_interactive(self, issue_time, components, observations, environment, user_timezone=None):
         self.issue_time = issue_time
@@ -148,8 +176,14 @@ class SessionOrchestrator:
         collected_at = datetime.now(timezone.utc)
 
         # Check if any requested components exist in registry
-        valid_components = [comp for comp in self.components if comp in CONNECTOR_REGISTRY]
-        missing_components = [comp for comp in self.components if comp not in CONNECTOR_REGISTRY]
+        valid_components = [
+            comp for comp in self.components
+            if comp in CONNECTOR_REGISTRY or self._is_routable_generic_docker_component(comp)
+        ]
+        missing_components = [
+            comp for comp in self.components
+            if comp not in CONNECTOR_REGISTRY and not self._is_routable_generic_docker_component(comp)
+        ]
         if missing_components:
             self.logger.warning(f"Components not found in registry: {missing_components}")
 
@@ -594,6 +628,10 @@ class SessionOrchestrator:
                 logger.info(f"Running collector for component={comp} on host={safe_host}")
 
                 ConnectorCls = CONNECTOR_REGISTRY.get(comp)
+                is_targeted_generic_docker = self._is_unclaimed_docker_service(comp, host_services)
+                if not ConnectorCls and is_targeted_generic_docker:
+                    ConnectorCls = CONNECTOR_REGISTRY.get("generic_docker")
+                    logger.info("Using generic_docker with collect_only=[%s] for unclaimed Docker service", comp)
                 if not ConnectorCls:
                     print(f"⚠️ No connector found for: {comp}")
                     logger.warning(f"No adapter for component: {comp}")
@@ -605,6 +643,12 @@ class SessionOrchestrator:
                     comp_cfg = {
                         **(host_services.get("generic_docker") or {}),
                         "_host_services": host_services,
+                    }
+                elif is_targeted_generic_docker:
+                    comp_cfg = {
+                        **(host_services.get("generic_docker") or {}),
+                        "_host_services": host_services,
+                        "collect_only": [comp],
                     }
                 else:
                     comp_cfg = host_services[comp]

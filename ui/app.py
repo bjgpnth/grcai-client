@@ -1582,6 +1582,8 @@ with tab_env:
                 services = host.get("services", {})
                 if isinstance(services, dict):
                     component_options.update(services.keys())
+            # generic_docker is an internal adapter; users select the Docker service names it can collect.
+            component_options.discard("generic_docker")
             # Sort with "os" first if present; fallback to hardcoded list if no services in YAML
             if component_options:
                 component_list = sorted(component_options, key=lambda x: (x != "os", x.lower()))

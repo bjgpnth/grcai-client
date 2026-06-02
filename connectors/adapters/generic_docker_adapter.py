@@ -18,6 +18,19 @@ DEFAULT_LOG_TAIL_LINES = 2000
 MAX_LOG_CHARS = 50 * 1024
 
 
+def _is_connector_error(out: str) -> bool:
+    """Return True for adapter/connector sentinel errors, not valid JSON/log lines."""
+    return out.startswith((
+        "[host exec error:",
+        "[docker-host exec error:",
+        "[docker-host logs error:",
+        "[docker-host error:",
+        "[docker-host timeout",
+        "[docker not available]",
+        "[no exec method]",
+    ))
+
+
 class GenericDockerAdapter(BaseConnector):
     """
     Collects container metadata, resource usage, and logs for every Docker
@@ -55,7 +68,7 @@ class GenericDockerAdapter(BaseConnector):
                     pass
             cmd = f"docker inspect {container_id} 2>/dev/null"
             out = self._exec(connector, cmd)
-            if out and not out.startswith("["):
+            if out and not _is_connector_error(out):
                 try:
                     inspect_list = json.loads(out)
                     if inspect_list and len(inspect_list) > 0:
@@ -70,19 +83,21 @@ class GenericDockerAdapter(BaseConnector):
         """Get container logs (stdout+stderr). Returns string or error message."""
         try:
             if hasattr(connector, "get_container_logs"):
-                out = connector.get_container_logs(container_id, tail=tail)
-                if isinstance(out, dict):
-                    out = out.get("stdout", out.get("output", "")) or ""
-                out = str(out or "")
-                if out.startswith("["):
-                    return out
-                if len(out) > MAX_LOG_CHARS:
-                    out = out[-MAX_LOG_CHARS:]
-                return out
+                try:
+                    out = connector.get_container_logs(container_id, tail=tail)
+                    if isinstance(out, dict):
+                        out = out.get("stdout", out.get("output", "")) or ""
+                    out = str(out or "")
+                    if out and not _is_connector_error(out):
+                        if len(out) > MAX_LOG_CHARS:
+                            out = out[-MAX_LOG_CHARS:]
+                        return out
+                except NotImplementedError:
+                    pass
             if hasattr(connector, "exec_cmd"):
                 cmd = f"timeout 15 docker logs --tail {tail} {container_id} 2>&1 || true"
                 out = self._exec(connector, cmd)
-                if out and not out.startswith("[host exec error"):
+                if out and not _is_connector_error(out):
                     if len(out) > MAX_LOG_CHARS:
                         out = out[-MAX_LOG_CHARS:]
                     return out
@@ -116,6 +131,13 @@ class GenericDockerAdapter(BaseConnector):
             return findings
 
         log_tail = self.component_config.get("log_tail_lines", DEFAULT_LOG_TAIL_LINES)
+        collect_only = self.component_config.get("collect_only")
+        if isinstance(collect_only, str):
+            collect_only = {collect_only}
+        elif isinstance(collect_only, (list, tuple, set)):
+            collect_only = set(collect_only)
+        else:
+            collect_only = None
         collected_any = False
 
         # Lazy import to avoid circular import (registry imports this module)
@@ -123,6 +145,8 @@ class GenericDockerAdapter(BaseConnector):
 
         for svc_name, svc_cfg in host_services.items():
             if svc_name in CONNECTOR_REGISTRY or svc_name == "generic_docker":
+                continue
+            if collect_only is not None and svc_name not in collect_only:
                 continue
             instances_cfg = svc_cfg.get("instances", []) if isinstance(svc_cfg, dict) else []
             for inst in instances_cfg:
